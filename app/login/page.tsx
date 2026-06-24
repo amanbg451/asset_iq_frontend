@@ -361,17 +361,25 @@ export default function LoginPage() {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
 
+  // ─── Load saved email on mount ──────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
+    
+    const savedEmail = localStorage.getItem("remembered_email");
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
   }, []);
 
+  // ─── UPDATED: Handle Login with 3 attempts ──────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(false);
 
     try {
-      // First try Platform Admin login
+      // ─── 1. Try Platform Admin Login ─────────────────────────────────────
       let response = await axios.post(
         "http://localhost:8000/platform-admins/login",
         {
@@ -383,52 +391,99 @@ export default function LoginPage() {
       const { access_token } = response.data;
       localStorage.setItem("access_token", access_token);
 
-      // Decode token to get role
+      if (rememberMe) {
+        localStorage.setItem("remembered_email", email);
+      } else {
+        localStorage.removeItem("remembered_email");
+      }
+
       const payload = JSON.parse(atob(access_token.split(".")[1]));
       const role = payload.role;
 
       toast.success(`Welcome ${role}!`);
-
-      // Redirect based on role
-      if (role === "ADMIN") {
-        router.push("/dashboard");
-      } else if (role === "CLIENT_ADMIN") {
-        router.push("/dashboard");
-      } else {
-        router.push("/dashboard");
-      }
+      router.push("/dashboard");
+      setLoading(false);
+      return;
     } catch (platformError: any) {
-      // If Platform Admin login fails, try Client Admin login
-      try {
-        const response = await axios.post(
-          "http://localhost:8000/client/login",
-          {
-            email,
-            password,
-          },
-        );
+      // Platform Admin login failed - continue to next
+    }
 
-        const { access_token } = response.data;
-        localStorage.setItem("access_token", access_token);
+    try {
+      // ─── 2. Try Client Admin Login ──────────────────────────────────────
+      const response = await axios.post(
+        "http://localhost:8000/client/login",
+        {
+          email,
+          password,
+        },
+      );
 
-        // Decode token to get role
-        const payload = JSON.parse(atob(access_token.split(".")[1]));
-        const role = payload.role;
+      const { access_token } = response.data;
+      localStorage.setItem("access_token", access_token);
 
-        toast.success(`Welcome ${role}!`);
-
-        // Redirect based on role
-        if (role === "CLIENT_ADMIN") {
-          router.push("/dashboard");
-        } else {
-          router.push("/dashboard");
-        }
-      } catch (clientError: any) {
-        setError(true);
-        toast.error("Invalid email or password");
-        setTimeout(() => setError(false), 600);
+      if (rememberMe) {
+        localStorage.setItem("remembered_email", email);
+      } else {
+        localStorage.removeItem("remembered_email");
       }
-    } finally {
+
+      const payload = JSON.parse(atob(access_token.split(".")[1]));
+      const role = payload.role;
+
+      toast.success(`Welcome ${role}!`);
+      router.push("/dashboard");
+      setLoading(false);
+      return;
+    } catch (clientError: any) {
+      // Check if it's a subscription error
+      const errorDetail = clientError.response?.data?.detail || "";
+      const statusCode = clientError.response?.status;
+
+      if (
+        statusCode === 403 &&
+        (errorDetail.toLowerCase().includes("subscription") ||
+          errorDetail.toLowerCase().includes("expired") ||
+          errorDetail.toLowerCase().includes("inactive"))
+      ) {
+        toast.error("Subscription expired or inactive. Please contact administrator.");
+        router.push("/subscription-expired");
+        setLoading(false);
+        return;
+      }
+      // Client Admin login failed - continue to next
+    }
+
+    try {
+      // ─── 3. NEW: Try Normal User Login ──────────────────────────────────
+      const response = await axios.post(
+        "http://localhost:8000/users/login",
+        {
+          email,
+          password,
+        },
+      );
+
+      const { access_token } = response.data;
+      localStorage.setItem("access_token", access_token);
+
+      if (rememberMe) {
+        localStorage.setItem("remembered_email", email);
+      } else {
+        localStorage.removeItem("remembered_email");
+      }
+
+      const payload = JSON.parse(atob(access_token.split(".")[1]));
+      const role = payload.role || "USER";
+
+      toast.success(`Welcome ${role}!`);
+      router.push("/dashboard");
+      setLoading(false);
+      return;
+    } catch (userError: any) {
+      // All login attempts failed
+      setError(true);
+      toast.error("Invalid email or password");
+      setTimeout(() => setError(false), 600);
       setLoading(false);
     }
   };

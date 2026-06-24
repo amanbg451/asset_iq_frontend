@@ -1,0 +1,169 @@
+/* app/(dashboard)/roles/RolesPage.module.css */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.fadeInUp {
+  animation: fadeInUp 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards;
+}
+
+.fadeInScale {
+  animation: fadeInScale 0.3s ease forwards;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeInUp 0.25s ease;
+}
+
+.modalContent {
+  background: white;
+  border-radius: 28px;
+  width: 90%;
+  max-width: 720px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4);
+}
+
+.deleteModal {
+  max-width: 400px;
+}
+
+.createModal {
+  max-width: 480px;
+}
+
+.statCard {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #f1f5f9;
+  transition: all 0.3s ease;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(0, 0, 0, 0.1);
+}
+
+.roleCard {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.roleCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.15);
+}
+
+.roleTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.roleTable thead th {
+  text-align: left;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid #f1f5f9;
+  background: #fafbfc;
+}
+
+.roleTable tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.roleTable tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.roleTable tbody tr:hover {
+  background: #fef2f2;
+}
+
+.roleTable tbody tr:active {
+  background: #fecaca;
+}
+
+.viewToggleBtn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #64748b;
+}
+
+.viewToggleBtn:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.viewToggleBtnActive {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+
+.statusFilterBtn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #64748b;
+}
+
+.statusFilterBtn:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.statusFilterBtnActive {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
+}
+
+.inputFancy {
+  transition: all 0.2s ease;
+  background: #fafbfc;
+}
+
+.inputFancy:focus {
+  background: white;
+  transform: scale(1.01);
+}

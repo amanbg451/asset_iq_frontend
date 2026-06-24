@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import axios from "axios";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 interface Department {
   id: string;
@@ -24,19 +24,31 @@ interface Manager {
   is_active: boolean;
 }
 
-const getAuthToken = () => localStorage.getItem("access_token");
-
-const api = axios.create({
-  baseURL: "http://localhost:8000",
-});
-
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// ─── Helper: Get client_id from JWT token ───────────────────────────────────
+const getClientIdFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.client_id || "";
+  } catch {
+    return "";
   }
-  return config;
-});
+};
+
+// ─── Helper: Get user role from JWT token ───────────────────────────────────
+const getUserRoleFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+};
 
 export default function DepartmentDetailsPage() {
   const router = useRouter();
@@ -62,12 +74,26 @@ export default function DepartmentDetailsPage() {
   const fetchDepartment = async () => {
     try {
       setLoading(true);
+
+      // Get client_id and role for manager scope
+      const clientId = getClientIdFromToken();
+      const role = getUserRoleFromToken();
+
+      // Build managers URL based on role
+      let managersUrl = "/users/managers";
+      
+      // Only use client-specific endpoint if NOT Client Admin
+      // Client Admin doesn't have permission for /users/clients/{clientId}/managers
+      if (clientId && role !== "CLIENT_ADMIN") {
+        managersUrl = `/users/clients/${clientId}/managers`;
+      }
+
       const [deptRes, managerRes, managersRes] = await Promise.all([
         api.get(`/departments/${departmentId}`),
         api
           .get(`/departments/${departmentId}/manager`)
           .catch(() => ({ data: null })),
-        api.get("/users/managers").catch(() => ({ data: [] })),
+        api.get(managersUrl).catch(() => ({ data: [] })),
       ]);
       setDepartment(deptRes.data);
       setManager(managerRes.data);
@@ -605,7 +631,7 @@ export default function DepartmentDetailsPage() {
         </div>
       )}
 
-      {/* Assign Manager Modal */}
+      {/* ─── Assign Manager Modal ─── */}
       {showManagerModal && (
         <div
           className="modal-overlay"
@@ -651,12 +677,17 @@ export default function DepartmentDetailsPage() {
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all bg-white"
                   >
                     <option value="">-- Select a manager --</option>
-                    {managers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.full_name} ({m.email})
-                      </option>
-                    ))}
+                    {managers
+                      .filter((m) => m.is_active !== false)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.full_name} ({m.email})
+                        </option>
+                      ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Only active managers are shown
+                  </p>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
@@ -668,7 +699,7 @@ export default function DepartmentDetailsPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || !selectedManagerId}
                     className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (

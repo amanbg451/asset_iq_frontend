@@ -13,9 +13,10 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import React from "react";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 // ─── Animated counter ─────────────────────────────────────────────────────────
-function useCountUp(target: number, duration = 1300, delay = 0, run = true) {
+function useCountUp(target: number, duration = 1300, delay = 0, run: boolean) {
   const [value, setValue] = useState(0);
   useEffect(() => {
     if (!run) return;
@@ -228,107 +229,86 @@ const Icon = React.memo(function Icon({
   );
 });
 
-// ─── Platform Admin Stats (Original) ───────────────────────────────────────────
-const ADMIN_STATS = [
-  {
-    label: "Total Assets",
-    value: 52431,
-    change: 12.5,
-    accent: "#c0152a",
-    icon: "tag",
-    spark: [400, 440, 470, 450, 490, 510, 524],
-  },
-  {
-    label: "In Transit",
-    value: 124,
-    change: 8.2,
-    accent: "#0ea5e9",
-    icon: "truck",
-    spark: [98, 105, 112, 108, 119, 121, 124],
-  },
-  {
-    label: "Maintenance",
-    value: 56,
-    change: 4.1,
-    accent: "#f59e0b",
-    icon: "wrench",
-    spark: [48, 51, 53, 50, 55, 54, 56],
-  },
-  {
-    label: "Active GPS",
-    value: 863,
-    change: 7.7,
-    accent: "#10b981",
-    icon: "gps",
-    spark: [800, 815, 820, 830, 845, 855, 863],
-  },
-  {
-    label: "Pending Audits",
-    value: 34,
-    change: -13.3,
-    accent: "#8b5cf6",
-    icon: "clipboard",
-    spark: [42, 39, 38, 36, 37, 35, 34],
-  },
-  {
-    label: "Lost Assets",
-    value: 7,
-    change: -12.5,
-    accent: "#ef4444",
-    icon: "alertc",
-    spark: [10, 9, 9, 8, 8, 8, 7],
-  },
-];
+// ─── Helper: Get client_id from JWT token ───────────────────────────────────
+const getClientIdFromToken = () => {
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.client_id || "";
+  } catch {
+    return "";
+  }
+};
 
-// ─── Client Admin Stats ─────────────────────────────────────────────────────────
-const CLIENT_STATS = [
+// ─── Helper: Get user role from JWT token ───────────────────────────────────
+const getUserRoleFromToken = () => {
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+};
+
+// ─── Dashboard Stats Interface ───────────────────────────────────────────────
+interface DashboardStats {
+  departments: number;
+  managers: number;
+  users: number;
+  licencesUsed: number;
+  licencesTotal: number;
+  licenceRemaining: number;
+  enabledServices: Array<{ id: string; name: string; code: string }>;
+  subscriptionStatus: string;
+  subscriptionEndsAt: string | null;
+}
+
+// ─── Platform Admin Stats (from API) ─────────────────────────────────────────
+const ADMIN_STATS_CONFIG = [
   {
-    label: "Total Assets",
-    value: 12450,
-    change: 8.3,
-    accent: "#c0152a",
+    label: "Total Clients",
+    key: "totalClients",
     icon: "tag",
-    spark: [11200, 11500, 11800, 12000, 12200, 12350, 12450],
+    accent: "#c0152a",
+    spark: [0, 0, 0, 0, 0, 0, 0],
   },
   {
-    label: "Departments",
-    value: 8,
-    change: 2,
-    accent: "#0ea5e9",
-    icon: "clipboard",
-    spark: [5, 5, 6, 6, 7, 7, 8],
-  },
-  {
-    label: "Active Users",
-    value: 45,
-    change: 5.2,
-    accent: "#10b981",
+    label: "Active Clients",
+    key: "activeClients",
     icon: "gps",
-    spark: [38, 39, 40, 42, 43, 44, 45],
-  },
-  {
-    label: "Licences Used",
-    value: 45,
-    change: 8.1,
-    accent: "#8b5cf6",
-    icon: "clipboard",
-    spark: [38, 39, 40, 42, 43, 44, 45],
-  },
-  {
-    label: "Pending Approvals",
-    value: 3,
-    change: -1,
-    accent: "#f59e0b",
-    icon: "alertc",
-    spark: [5, 5, 4, 4, 3, 3, 3],
-  },
-  {
-    label: "Subscription Status",
-    value: 1,
-    change: 0,
     accent: "#10b981",
-    icon: "check",
-    spark: [1, 1, 1, 1, 1, 1, 1],
+    spark: [0, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    label: "Active Subscriptions",
+    key: "activeSubscriptions",
+    icon: "clipboard",
+    accent: "#0ea5e9",
+    spark: [0, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    label: "Total Services",
+    key: "totalServices",
+    icon: "tag",
+    accent: "#8b5cf6",
+    spark: [0, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    label: "Total Users",
+    key: "totalUsers",
+    icon: "gps",
+    accent: "#f59e0b",
+    spark: [0, 0, 0, 0, 0, 0, 0],
+  },
+  {
+    label: "Total Departments",
+    key: "totalDepartments",
+    icon: "clipboard",
+    accent: "#ef4444",
+    spark: [0, 0, 0, 0, 0, 0, 0],
   },
 ];
 
@@ -564,14 +544,113 @@ export default function DashboardPage() {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const [barsVisible, setBarsVisible] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+
+  // ─── NEW: Real dashboard stats state ─────────────────────────────────────────
+  const [clientStats, setClientStats] = useState<DashboardStats>({
+    departments: 0,
+    managers: 0,
+    users: 0,
+    licencesUsed: 0,
+    licencesTotal: 0,
+    licenceRemaining: 0,
+    enabledServices: [],
+    subscriptionStatus: "",
+    subscriptionEndsAt: null,
+  });
+
+  const [adminStats, setAdminStats] = useState({
+    totalClients: 0,
+    activeClients: 0,
+    activeSubscriptions: 0,
+    totalServices: 0,
+    totalUsers: 0,
+    totalDepartments: 0,
+  });
 
   const searchRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Determine which stats to show based on role
-  const STATS = userRole === "ADMIN" ? ADMIN_STATS : CLIENT_STATS;
-
   const unread = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
+
+  // ─── Fetch dashboard data using new endpoints ──────────────────────────────
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setDashboardLoading(true);
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const role = payload.role || "";
+      setUserRole(role);
+      setUserEmail(payload.email || payload.name || "");
+
+      // Determine which dashboard endpoint to call based on role
+      let endpoint = "";
+      if (role === "ADMIN") {
+        endpoint = "/dashboard/admin";
+      } else if (role === "CLIENT_ADMIN") {
+        endpoint = "/dashboard/client";
+      } else if (role === "MANAGER") {
+        endpoint = "/dashboard/manager";
+      } else {
+        // Fallback for other roles
+        endpoint = "/dashboard/client";
+      }
+
+      const response = await api.get(endpoint);
+      const data = response.data;
+
+      // Map API response to state based on role
+      if (role === "ADMIN") {
+        setAdminStats({
+          totalClients: data.total_clients || 0,
+          activeClients: data.active_clients || 0,
+          activeSubscriptions: data.active_subscriptions || 0,
+          totalServices: data.total_services || 0,
+          totalUsers: data.total_users || 0,
+          totalDepartments: data.total_departments || 0,
+        });
+      } else if (role === "CLIENT_ADMIN") {
+        setClientStats({
+          departments: data.total_departments || 0,
+          managers: data.total_managers || 0,
+          users: data.total_users || 0,
+          licencesUsed: data.subscription?.used_licences || 0,
+          licencesTotal: data.subscription?.licence_count || 0,
+          licenceRemaining:
+            (data.subscription?.licence_count || 0) -
+            (data.subscription?.used_licences || 0),
+          enabledServices: [], // Will be fetched separately if needed
+          subscriptionStatus: data.subscription?.status || "INACTIVE",
+          subscriptionEndsAt: data.subscription?.ends_at || null,
+        });
+      } else if (role === "MANAGER") {
+        // Manager stats - map to client stats structure for display
+        setClientStats({
+          departments: 1, // Manager belongs to one department
+          managers: 0,
+          users: data.total_team_members || 0,
+          licencesUsed: 0,
+          licencesTotal: 0,
+          licenceRemaining: 0,
+          enabledServices: [],
+          subscriptionStatus: "ACTIVE",
+          subscriptionEndsAt: null,
+        });
+      }
+    } catch (error: any) {
+      console.error("Error fetching dashboard data:", error);
+      toast.error(
+        error.response?.data?.detail || "Failed to load dashboard data",
+      );
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [router]);
 
   useEffect(() => {
     setMounted(true);
@@ -581,12 +660,8 @@ export default function DashboardPage() {
       router.push("/login");
       return;
     }
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setUserEmail(payload.email || payload.name || "");
-      setUserRole(payload.role || "");
-    } catch {}
-  }, [router]);
+    fetchDashboardData();
+  }, [router, fetchDashboardData]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -598,6 +673,136 @@ export default function DashboardPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // ─── Build stats array based on role and real data ───────────────────────────
+const STATS = useMemo(() => {
+  if (userRole === "ADMIN") {
+    return [
+      {
+        label: "Total Clients",
+        value: adminStats.totalClients,
+        change: 0,
+        accent: "#c0152a",
+        icon: "tag",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.totalClients],
+      },
+      {
+        label: "Active Clients",
+        value: adminStats.activeClients,
+        change: 0,
+        accent: "#0ea5e9",
+        icon: "gps",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.activeClients],
+      },
+      {
+        label: "Active Subscriptions",
+        value: adminStats.activeSubscriptions,
+        change: 0,
+        accent: "#f59e0b",
+        icon: "wrench",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.activeSubscriptions],
+      },
+      {
+        label: "Total Services",
+        value: adminStats.totalServices,
+        change: 0,
+        accent: "#10b981",
+        icon: "gps",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.totalServices],
+      },
+      {
+        label: "Total Users",
+        value: adminStats.totalUsers,
+        change: 0,
+        accent: "#8b5cf6",
+        icon: "clipboard",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.totalUsers],
+      },
+      {
+        label: "Total Departments",
+        value: adminStats.totalDepartments,
+        change: 0,
+        accent: "#ef4444",
+        icon: "alertc",
+        spark: [0, 0, 0, 0, 0, 0, adminStats.totalDepartments],
+      },
+    ];
+  }
+
+  // ─── NEW: Manager Stats ──────────────────────────────────────────────────────
+  if (userRole === "MANAGER") {
+    return [
+      {
+        label: "Team Members",
+        value: clientStats.users,
+        change: 0,
+        accent: "#8b5cf6",
+        icon: "users",  // Note: Make sure 'users' icon exists in your Icon component
+        spark: [0, 0, 0, 0, 0, 0, clientStats.users],
+      },
+      {
+        label: "Department Assets",
+        value: clientStats.departments,
+        change: 0,
+        accent: "#0ea5e9",
+        icon: "box",  // Note: Make sure 'box' icon exists in your Icon component
+        spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
+      },
+    ];
+  }
+
+  // Client Admin Stats
+  return [
+    {
+      label: "Departments",
+      value: clientStats.departments,
+      change: 0,
+      accent: "#c0152a",
+      icon: "tag",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
+    },
+    {
+      label: "Managers",
+      value: clientStats.managers,
+      change: 0,
+      accent: "#0ea5e9",
+      icon: "truck",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.managers],
+    },
+    {
+      label: "Active Users",
+      value: clientStats.users,
+      change: 0,
+      accent: "#10b981",
+      icon: "gps",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.users],
+    },
+    {
+      label: "Licences Used",
+      value: clientStats.licencesUsed,
+      change: 0,
+      accent: "#8b5cf6",
+      icon: "clipboard",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.licencesUsed],
+    },
+    {
+      label: "Licences Remaining",
+      value: clientStats.licenceRemaining,
+      change: 0,
+      accent: "#f59e0b",
+      icon: "alertc",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.licenceRemaining],
+    },
+    {
+      label: "Enabled Services",
+      value: clientStats.enabledServices.length,
+      change: 0,
+      accent: "#10b981",
+      icon: "check",
+      spark: [0, 0, 0, 0, 0, 0, clientStats.enabledServices.length],
+    },
+  ];
+}, [userRole, adminStats, clientStats]);
 
   const markAllRead = useCallback(
     () => setNotifs((n) => n.map((x) => ({ ...x, read: true }))),
@@ -663,6 +868,17 @@ export default function DashboardPage() {
     flash: { bg: "#fef9c3", icon: "flash", col: "#f59e0b" },
     plus: { bg: "#f3e8ff", icon: "plus", col: "#8b5cf6" },
   };
+
+  if (dashboardLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-red-50/15 to-white">
+        <div className="text-center">
+          <div className="w-12 h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

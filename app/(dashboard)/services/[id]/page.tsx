@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import axios from "axios";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 interface Service {
   id: string;
@@ -12,20 +12,6 @@ interface Service {
   description: string;
   is_active: boolean;
 }
-
-const getAuthToken = () => localStorage.getItem("access_token");
-
-const api = axios.create({
-  baseURL: "http://localhost:8000",
-});
-
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function ServiceDetailsPage() {
   const router = useRouter();
@@ -47,7 +33,12 @@ export default function ServiceDetailsPage() {
       setService(response.data);
     } catch (error: any) {
       console.error("Error fetching service:", error);
-      toast.error(error.response?.data?.detail || "Failed to fetch service");
+      // Check if service was not found (404) - might be deactivated
+      if (error.response?.status === 404) {
+        toast.error("Service not found or has been deactivated");
+      } else {
+        toast.error(error.response?.data?.detail || "Failed to fetch service");
+      }
       router.push("/services");
     } finally {
       setLoading(false);
@@ -170,7 +161,7 @@ export default function ServiceDetailsPage() {
           background: white;
           border-radius: 28px;
           width: 90%;
-          max-width: 560px;
+          max-width: 640px;
           max-height: 85vh;
           overflow-y: auto;
           animation: fadeInUp 0.35s ease;
@@ -302,12 +293,12 @@ export default function ServiceDetailsPage() {
         </div>
       </div>
 
-      {/* Edit Modal */}
+      {/* Edit Modal - Updated with placeholder-black and larger size */}
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">Edit Service</h2>
                   <p className="text-sm text-gray-400">Update service information</p>
@@ -326,7 +317,8 @@ export default function ServiceDetailsPage() {
                     type="text"
                     value={editFormData.name || ""}
                     onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter service name"
                   />
                 </div>
                 <div>
@@ -335,7 +327,8 @@ export default function ServiceDetailsPage() {
                     type="text"
                     value={editFormData.code || ""}
                     onChange={(e) => setEditFormData({ ...editFormData, code: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all font-mono text-sm text-gray-800"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all font-mono text-sm text-gray-800 placeholder-black"
+                    placeholder="Enter service code"
                   />
                 </div>
                 <div>
@@ -344,12 +337,13 @@ export default function ServiceDetailsPage() {
                     value={editFormData.description || ""}
                     onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
                     rows={3}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all resize-none input-fancy text-gray-800"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all resize-none input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter service description"
                   />
                 </div>
                 <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                  <button type="submit" disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md">
+                  <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
+                  <button type="submit" disabled={submitting} className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md">
                     {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Update Service"}
                   </button>
                 </div>
@@ -377,8 +371,8 @@ export default function ServiceDetailsPage() {
                 This action can be reversed later.
               </p>
               <div className="flex gap-3">
-                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                <button onClick={handleDeleteService} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
+                <button onClick={handleDeleteService} disabled={submitting} className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
                   {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Yes, Deactivate"}
                 </button>
               </div>
@@ -405,8 +399,8 @@ export default function ServiceDetailsPage() {
                 The service will become active again.
               </p>
               <div className="flex gap-3">
-                <button onClick={() => setShowRestoreConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                <button onClick={handleRestoreService} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
+                <button onClick={() => setShowRestoreConfirm(false)} className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
+                <button onClick={handleRestoreService} disabled={submitting} className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
                   {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Yes, Restore"}
                 </button>
               </div>

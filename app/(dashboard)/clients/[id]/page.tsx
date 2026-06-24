@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import axios from "axios";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 interface Client {
   id: string;
@@ -48,6 +48,7 @@ interface SubscribedService {
   id: string;
   code: string;
   name: string;
+  is_active: boolean;
 }
 
 interface ClientAdmin {
@@ -59,20 +60,6 @@ interface ClientAdmin {
   role: string;
   is_active: boolean;
 }
-
-const getAuthToken = () => localStorage.getItem("access_token");
-
-const api = axios.create({
-  baseURL: "http://localhost:8000",
-});
-
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function ClientDetailsPage() {
   const router = useRouter();
@@ -123,6 +110,17 @@ export default function ClientDetailsPage() {
     services: [] as string[],
   });
   const [servicesList, setServicesList] = useState<SubscribedService[]>([]);
+
+  // ─── NEW: Edit Subscription State ──────────────────────────────────────────
+  const [editSubscriptionFormData, setEditSubscriptionFormData] = useState({
+    licence_count: 0,
+    max_assets: 0,
+    max_departments: 0,
+    price: 0,
+    starts_at: "",
+    ends_at: "",
+    auto_renew: false,
+  });
 
   const fetchClient = async () => {
     try {
@@ -264,6 +262,26 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // ─── NEW: Handle Edit Subscription ──────────────────────────────────────────
+  const handleEditSubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subscription) return;
+    setSubmitting(true);
+    try {
+      await api.patch(`/clients/subscriptions/${subscription.id}`, editSubscriptionFormData);
+      toast.success("Subscription updated successfully");
+      setShowEditSubscriptionModal(false);
+      fetchClient();
+    } catch (error: any) {
+      console.error("Error updating subscription:", error);
+      toast.error(
+        error.response?.data?.detail || "Failed to update subscription",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSuspendSubscription = async () => {
     if (!subscription) return;
     setSubmitting(true);
@@ -376,6 +394,22 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // ─── NEW: Open Edit Subscription Modal ──────────────────────────────────────
+  const openEditSubscriptionModal = () => {
+    if (subscription) {
+      setEditSubscriptionFormData({
+        licence_count: subscription.licence_count,
+        max_assets: subscription.max_assets,
+        max_departments: subscription.max_departments,
+        price: subscription.price,
+        starts_at: subscription.starts_at.split("T")[0],
+        ends_at: subscription.ends_at.split("T")[0],
+        auto_renew: subscription.auto_renew,
+      });
+      setShowEditSubscriptionModal(true);
+    }
+  };
+
   const handleServiceToggle = (serviceId: string) => {
     setSubscriptionFormData((prev) => ({
       ...prev,
@@ -457,7 +491,7 @@ export default function ClientDetailsPage() {
           background: white;
           border-radius: 28px;
           width: 90%;
-          max-width: 560px;
+          max-width: 640px;
           max-height: 85vh;
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
@@ -859,7 +893,7 @@ export default function ClientDetailsPage() {
                         </button>
                       )}
                       <button
-                        onClick={() => setShowEditSubscriptionModal(true)}
+                        onClick={openEditSubscriptionModal}
                         className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold"
                       >
                         Edit
@@ -1101,8 +1135,8 @@ export default function ClientDetailsPage() {
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">
                     Edit Client
@@ -1140,7 +1174,8 @@ export default function ClientDetailsPage() {
                       setEditFormData({ ...editFormData, name: e.target.value })
                     }
                     required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter client name"
                   />
                 </div>
                 <div>
@@ -1156,7 +1191,8 @@ export default function ClientDetailsPage() {
                         industry: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="e.g., Technology, Logistics, Healthcare"
                   />
                 </div>
                 <div>
@@ -1172,7 +1208,8 @@ export default function ClientDetailsPage() {
                         contact_email: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="admin@company.com"
                   />
                 </div>
                 <div>
@@ -1188,7 +1225,8 @@ export default function ClientDetailsPage() {
                         contact_phone: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="+91 1234567890"
                   />
                 </div>
                 <div>
@@ -1204,7 +1242,8 @@ export default function ClientDetailsPage() {
                         address_line_1: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Building/Flat number, Street"
                   />
                 </div>
                 <div>
@@ -1220,7 +1259,8 @@ export default function ClientDetailsPage() {
                         address_line_2: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Area, Locality"
                   />
                 </div>
                 <div>
@@ -1236,21 +1276,22 @@ export default function ClientDetailsPage() {
                         address_line_3: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="City, State, PIN Code"
                   />
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1272,8 +1313,8 @@ export default function ClientDetailsPage() {
           onClick={() => setShowEditAdminModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">
                     Edit Client Admin
@@ -1314,7 +1355,8 @@ export default function ClientDetailsPage() {
                       })
                     }
                     required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter full name"
                   />
                 </div>
                 <div>
@@ -1325,7 +1367,7 @@ export default function ClientDetailsPage() {
                     type="email"
                     value={clientAdmin.email}
                     disabled
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-100 text-gray-500 cursor-not-allowed"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-100 text-gray-500 cursor-not-allowed"
                   />
                   <p className="text-xs text-gray-400 mt-1">
                     Email cannot be changed
@@ -1344,7 +1386,7 @@ export default function ClientDetailsPage() {
                         phone: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
                     placeholder="+91 9876543210"
                   />
                 </div>
@@ -1352,14 +1394,14 @@ export default function ClientDetailsPage() {
                   <button
                     type="button"
                     onClick={() => setShowEditAdminModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1381,8 +1423,8 @@ export default function ClientDetailsPage() {
           onClick={() => setShowCreateSubscriptionModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">
                     Create Subscription
@@ -1427,7 +1469,8 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="e.g., 100"
                     />
                   </div>
                   <div>
@@ -1447,7 +1490,8 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="e.g., 500"
                     />
                   </div>
                 </div>
@@ -1469,7 +1513,8 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="e.g., 20"
                     />
                   </div>
                   <div>
@@ -1489,7 +1534,8 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="e.g., 50000"
                     />
                   </div>
                 </div>
@@ -1508,7 +1554,7 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
                     />
                   </div>
                   <div>
@@ -1525,7 +1571,7 @@ export default function ClientDetailsPage() {
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
                     />
                   </div>
                 </div>
@@ -1549,42 +1595,44 @@ export default function ClientDetailsPage() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Services to Include
                   </label>
-                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border border-gray-200 rounded-xl">
-                    {servicesList.map((service) => (
-                      <label
-                        key={service.id}
-                        className="flex items-center gap-2 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={subscriptionFormData.services.includes(
-                            service.id,
-                          )}
-                          onChange={() => handleServiceToggle(service.id)}
-                          className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                        />
-                        <span className="text-sm text-gray-700">
-                          {service.name}
-                        </span>
-                      </label>
-                    ))}
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-3 border border-gray-200 rounded-xl">
+                    {servicesList
+                      .filter((service) => service.is_active !== false)
+                      .map((service) => (
+                        <label
+                          key={service.id}
+                          className="flex items-center gap-2 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={subscriptionFormData.services.includes(
+                              service.id,
+                            )}
+                            onChange={() => handleServiceToggle(service.id)}
+                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {service.name}
+                          </span>
+                        </label>
+                      ))}
                   </div>
                   <p className="text-xs text-gray-400 mt-1">
-                    Select the services for this subscription
+                    Only active services are shown
                   </p>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowCreateSubscriptionModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1599,15 +1647,15 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Edit Subscription Modal */}
+      {/* ─── UPDATED: Edit Subscription Modal ─── */}
       {showEditSubscriptionModal && subscription && (
         <div
           className="modal-overlay"
           onClick={() => setShowEditSubscriptionModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">
                     Edit Subscription
@@ -1633,7 +1681,9 @@ export default function ClientDetailsPage() {
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleCreateSubscription} className="space-y-4">
+
+              {/* ─── NEW: Use handleEditSubscription ─── */}
+              <form onSubmit={handleEditSubscription} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -1641,18 +1691,16 @@ export default function ClientDetailsPage() {
                     </label>
                     <input
                       type="number"
-                      value={subscriptionFormData.licence_count || ""}
+                      value={editSubscriptionFormData.licence_count}
                       onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          licence_count:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          licence_count: parseInt(e.target.value) || 0,
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="Enter licence count"
                     />
                   </div>
                   <div>
@@ -1661,18 +1709,16 @@ export default function ClientDetailsPage() {
                     </label>
                     <input
                       type="number"
-                      value={subscriptionFormData.max_assets || ""}
+                      value={editSubscriptionFormData.max_assets}
                       onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          max_assets:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          max_assets: parseInt(e.target.value) || 0,
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="Enter max assets"
                     />
                   </div>
                 </div>
@@ -1683,18 +1729,16 @@ export default function ClientDetailsPage() {
                     </label>
                     <input
                       type="number"
-                      value={subscriptionFormData.max_departments || ""}
+                      value={editSubscriptionFormData.max_departments}
                       onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          max_departments:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          max_departments: parseInt(e.target.value) || 0,
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="Enter max departments"
                     />
                   </div>
                   <div>
@@ -1703,33 +1747,83 @@ export default function ClientDetailsPage() {
                     </label>
                     <input
                       type="number"
-                      value={subscriptionFormData.price || ""}
+                      value={editSubscriptionFormData.price}
                       onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          price:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          price: parseInt(e.target.value) || 0,
                         })
                       }
                       required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                      placeholder="Enter price"
                     />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editSubscriptionFormData.starts_at}
+                      onChange={(e) =>
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          starts_at: e.target.value,
+                        })
+                      }
+                      required
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editSubscriptionFormData.ends_at}
+                      onChange={(e) =>
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          ends_at: e.target.value,
+                        })
+                      }
+                      required
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editSubscriptionFormData.auto_renew}
+                      onChange={(e) =>
+                        setEditSubscriptionFormData({
+                          ...editSubscriptionFormData,
+                          auto_renew: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                    />
+                    <span className="text-sm text-gray-700">Auto Renew</span>
+                  </label>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowEditSubscriptionModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1751,8 +1845,8 @@ export default function ClientDetailsPage() {
           onClick={() => setShowCreateAdminModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-5">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">
                     Create Client Admin
@@ -1794,8 +1888,8 @@ export default function ClientDetailsPage() {
                       })
                     }
                     required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
-                    placeholder="John Doe"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter full name"
                   />
                 </div>
                 <div>
@@ -1813,7 +1907,7 @@ export default function ClientDetailsPage() {
                       })
                     }
                     required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
                     placeholder="admin@company.com"
                   />
                 </div>
@@ -1832,8 +1926,8 @@ export default function ClientDetailsPage() {
                       })
                     }
                     required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
-                    placeholder="••••••••"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
+                    placeholder="Enter password"
                   />
                   <p className="text-xs text-gray-400 mt-1">
                     Min 8 characters with uppercase, lowercase, and number
@@ -1853,7 +1947,7 @@ export default function ClientDetailsPage() {
                         phone: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
                     placeholder="+91 9876543210"
                   />
                 </div>
@@ -1861,14 +1955,14 @@ export default function ClientDetailsPage() {
                   <button
                     type="button"
                     onClick={() => setShowCreateAdminModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1921,14 +2015,14 @@ export default function ClientDetailsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteClient}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1980,14 +2074,14 @@ export default function ClientDetailsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowRestoreConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRestoreClient}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

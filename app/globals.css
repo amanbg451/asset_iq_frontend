@@ -24,3 +24,165 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* ─── Platform Admins Page Styles ─── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.fade-in-up { animation: fadeInUp 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards; }
+.fade-in-scale { animation: fadeInScale 0.3s ease forwards; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeInUp 0.25s ease;
+}
+.modal-content {
+  background: white;
+  border-radius: 28px;
+  width: 90%;
+  max-width: 640px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4);
+}
+.delete-modal { max-width: 400px; }
+
+.stat-card {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid #f1f5f9;
+  transition: all 0.3s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(0,0,0,0.1);
+}
+
+.admin-card {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.admin-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px -12px rgba(0,0,0,0.15);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.3s;
+  border-radius: 24px;
+}
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+input:checked + .toggle-slider {
+  background-color: #dc2626;
+}
+input:checked + .toggle-slider:before {
+  transform: translateX(26px);
+}
+
+.input-fancy {
+  transition: all 0.2s ease;
+  background: #fafbfc;
+}
+.input-fancy:focus {
+  background: white;
+  transform: scale(1.01);
+}
+
+/* ─── Table Styles ──────────────────────────────────────────────────── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-weight: 400;
+}
+.admin-table thead th {
+  text-align: left;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid #f1f5f9;
+  background: #fafbfc;
+}
+.admin-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 400;
+}
+.admin-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.admin-table tbody tr:hover {
+  background: #fef2f2;
+}
+.admin-table tbody tr:active {
+  background: #fecaca;
+}
+
+/* ─── View Toggle Buttons ──────────────────────────────────────────── */
+.view-toggle-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #64748b;
+}
+.view-toggle-btn:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+.view-toggle-btn.active {
+  background: #dc2626;
+  color: white;
+  border-color: #dc2626;
+  box-shadow: 0 2px 8px rgba(220,38,38,0.25);
+}

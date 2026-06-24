@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import axios from "axios";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 interface User {
   id: string;
@@ -21,21 +21,8 @@ interface Department {
   id: string;
   name: string;
   code: string;
+  is_active: boolean;
 }
-
-const getAuthToken = () => localStorage.getItem("access_token");
-
-const api = axios.create({
-  baseURL: "http://localhost:8000",
-});
-
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export default function UserDetailsPage() {
   const router = useRouter();
@@ -384,7 +371,7 @@ export default function UserDetailsPage() {
         </div>
       </div>
 
-      {/* Edit User Modal */}
+      {/* ─── UPDATED: Edit User Modal with Department Dropdown ─── */}
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -410,14 +397,22 @@ export default function UserDetailsPage() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone</label>
                   <input type="tel" value={editFormData.phone} onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy" />
                 </div>
+                {/* ─── UPDATED: Department Dropdown with Active Filter ─── */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Department</label>
-                  <select value={editFormData.department_id} onChange={(e) => setEditFormData({ ...editFormData, department_id: e.target.value })} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all bg-white">
+                  <select 
+                    value={editFormData.department_id} 
+                    onChange={(e) => setEditFormData({ ...editFormData, department_id: e.target.value })} 
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all bg-white"
+                  >
                     <option value="">Select Department</option>
-                    {departments.map((dept) => (
-                      <option key={dept.id} value={dept.id}>{dept.name}</option>
-                    ))}
+                    {departments
+                      .filter((dept) => dept.is_active !== false)
+                      .map((dept) => (
+                        <option key={dept.id} value={dept.id}>{dept.name}</option>
+                      ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">Only active departments are shown</p>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
+import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
+import api from "@/app/lib/api";
 
 // Types
 interface Client {
@@ -33,20 +34,60 @@ interface CreateClientData {
   address_line_3: string;
 }
 
-// ─── API Helper ──────────────────────────────────────────────────────────────
-const getAuthToken = () => localStorage.getItem("access_token");
+type ViewMode = "table" | "grid";
 
-const api = axios.create({
-  baseURL: "http://localhost:8000",
-});
+// ─── Helper: Export to CSV ──────────────────────────────────────────────────
+const exportToCSV = (data: Client[], filename: string) => {
+  const headers = ["Name", "Industry", "Email", "Phone", "Address", "Status"];
+  const rows = data.map((c) => [
+    c.name,
+    c.industry || "",
+    c.contact_email || "",
+    c.contact_phone || "",
+    c.address || "",
+    c.is_active ? "Active" : "Deactivated",
+  ]);
 
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+  let csv = headers.join(",") + "\n";
+  rows.forEach((row) => {
+    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filename}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ─── Helper: Export to Excel ────────────────────────────────────────────────
+const exportToExcel = (data: Client[], filename: string) => {
+  const headers = ["Name", "Industry", "Email", "Phone", "Address", "Status"];
+  const rows = data.map((c) => [
+    c.name,
+    c.industry || "",
+    c.contact_email || "",
+    c.contact_phone || "",
+    c.address || "",
+    c.is_active ? "Active" : "Deactivated",
+  ]);
+
+  let csv = "\uFEFF";
+  csv += headers.join(",") + "\n";
+  rows.forEach((row) => {
+    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+  });
+
+  const blob = new Blob([csv], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filename}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function ClientsPage() {
@@ -56,8 +97,17 @@ export default function ClientsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [showDeactivated, setShowDeactivated] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [formData, setFormData] = useState<CreateClientData>({
     name: "",
     slug: "",
@@ -70,7 +120,26 @@ export default function ClientsPage() {
     address_line_3: "",
   });
 
-  // ─── Fetch Clients (based on toggle) ───────────────────────────────────────
+  // ─── Set mounted state ─────────────────────────────────────────────────────
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  // ─── Position dropdown when it opens ──────────────────────────────────────
+  useEffect(() => {
+    if (showExportDropdown && exportButtonRef.current) {
+      const rect = exportButtonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left + rect.width / 2,
+      });
+    } else {
+      setDropdownPosition(null);
+    }
+  }, [showExportDropdown]);
+
+  // ─── Fetch Clients ─────────────────────────────────────────────────────────
   const fetchClients = useCallback(async () => {
     try {
       setLoading(true);
@@ -144,6 +213,7 @@ export default function ClientsPage() {
     setSearchTerm("");
   };
 
+  // ─── Filtered Clients ──────────────────────────────────────────────────────
   const filteredClients = clients.filter(
     (client) =>
       client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -151,9 +221,34 @@ export default function ClientsPage() {
       client.contact_email?.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
-  // Navigate to client details page
+  // ─── Navigate to client details page ──────────────────────────────────────
   const handleClientClick = (clientId: string) => {
     router.push(`/clients/${clientId}`);
+  };
+
+  // ─── Export Handlers ──────────────────────────────────────────────────────
+  const handleExportCSV = () => {
+    exportToCSV(
+      filteredClients,
+      `clients_${new Date().toISOString().split("T")[0]}`,
+    );
+    setShowExportDropdown(false);
+    toast.success("CSV exported successfully");
+  };
+
+  const handleExportExcel = () => {
+    exportToExcel(
+      filteredClients,
+      `clients_${new Date().toISOString().split("T")[0]}`,
+    );
+    setShowExportDropdown(false);
+    toast.success("Excel exported successfully");
+  };
+
+  // ─── View Mode Labels ──────────────────────────────────────────────────────
+  const viewModeLabels: Record<ViewMode, string> = {
+    table: "📋 Table",
+    grid: "📊 Grid",
   };
 
   return (
@@ -190,30 +285,21 @@ export default function ClientsPage() {
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
         }
+        /* Enhanced modal: bigger, two-column layout */
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
-          border-radius: 28px;
-          width: 90%;
-          max-width: 560px;
-          max-height: 85vh;
+          border-radius: 32px;
+          width: 95%;
+          max-width: 820px;
+          max-height: 90vh;
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
-          box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(220, 38, 38, 0.1);
+          box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
+          padding: 28px 32px 32px;
         }
-        .modal-content::-webkit-scrollbar { width: 5px; }
+        .modal-content::-webkit-scrollbar { width: 6px; }
         .modal-content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; margin: 8px 0; }
         .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(135deg, #dc2626, #ef4444); border-radius: 10px; }
-        
-        .card-3d {
-          transition: all 0.4s cubic-bezier(0.2, 0.9, 0.4, 1.2);
-          transform-style: preserve-3d;
-          perspective: 1000px;
-          cursor: pointer;
-        }
-        .card-3d:hover {
-          transform: translateY(-6px) rotateX(2deg);
-          box-shadow: 0 20px 35px -12px rgba(0, 0, 0, 0.15);
-        }
         
         .btn-ripple {
           position: relative;
@@ -245,6 +331,7 @@ export default function ClientsPage() {
           animation: borderFlow 3s linear infinite;
         }
         
+        /* Softer placeholder color: light black / gray-500 */
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -252,6 +339,11 @@ export default function ClientsPage() {
         .input-fancy:focus {
           background: white;
           transform: scale(1.01);
+        }
+        .input-fancy::placeholder {
+          color: #9ca3af; /* light gray, not full black */
+          font-weight: 400;
+          opacity: 0.9;
         }
         
         .stat-card-glass {
@@ -305,6 +397,103 @@ export default function ClientsPage() {
         input:checked + .toggle-slider:before {
           transform: translateX(26px);
         }
+
+        /* ─── Table Styles ──────────────────────────────────────────────────── */
+        .client-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 14px;
+          font-weight: 400;
+        }
+        .client-table thead th {
+          text-align: left;
+          padding: 12px 16px;
+          font-weight: 600;
+          font-size: 13px;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border-bottom: 2px solid #f1f5f9;
+          background: #fafbfc;
+        }
+        .client-table tbody td {
+          padding: 12px 16px;
+          border-bottom: 1px solid #f1f5f9;
+          color: #1f2937;
+          font-size: 14px;
+          font-weight: 400;
+        }
+        .client-table tbody tr {
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .client-table tbody tr:hover {
+          background: #fef2f2;
+        }
+        .client-table tbody tr:active {
+          background: #fecaca;
+        }
+
+        /* ─── View Toggle Buttons ──────────────────────────────────────────── */
+        .view-toggle-btn {
+          padding: 6px 14px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 500;
+          border: 1px solid #e2e8f0;
+          background: white;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          color: #64748b;
+        }
+        .view-toggle-btn:hover {
+          border-color: #dc2626;
+          color: #dc2626;
+        }
+        .view-toggle-btn.active {
+          background: #dc2626;
+          color: white;
+          border-color: #dc2626;
+          box-shadow: 0 2px 8px rgba(220,38,38,0.25);
+        }
+
+        /* Two-column grid for modal fields */
+        .modal-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px 24px;
+        }
+        .modal-grid-2 .full-width {
+          grid-column: 1 / -1;
+        }
+        /* Icon inside input */
+        .input-icon-wrapper {
+          position: relative;
+        }
+        .input-icon-wrapper .icon {
+          position: absolute;
+          left: 14px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #9ca3af;
+          pointer-events: none;
+          font-size: 16px;
+          line-height: 1;
+        }
+        .input-icon-wrapper input,
+        .input-icon-wrapper textarea {
+          padding-left: 42px;
+        }
+        .input-icon-wrapper textarea {
+          padding-top: 12px;
+          padding-bottom: 12px;
+          resize: vertical;
+          min-height: 52px;
+        }
+        .input-icon-wrapper .icon-top {
+          top: 16px;
+          transform: none;
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -317,7 +506,7 @@ export default function ClientsPage() {
 
         <div className="relative p-6 lg:p-8 max-w-7xl mx-auto">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 fade-in-up">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 fade-in-up">
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <div className="relative">
@@ -342,34 +531,112 @@ export default function ClientsPage() {
                   <span className="gradient-text">Clients</span>
                 </h1>
               </div>
-              <p className="text-gray-500 ml-14 pl-0.5 text-sm">
+              <p className="text-gray-500 ml-14 pl-0.5 text-sm font-normal">
                 Manage your client companies and professional relationships
               </p>
             </div>
-            <button
-              onClick={() => setShowModal(true)}
-              className="group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 via-red-500 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 btn-ripple overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="group-hover:rotate-90 transition-transform duration-300"
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* ─── View Toggle ─── */}
+              <div className="flex bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 p-1 shadow-sm">
+                {(["table", "grid"] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    className={`view-toggle-btn ${viewMode === mode ? "active" : ""}`}
+                    onClick={() => setViewMode(mode)}
+                  >
+                    {viewModeLabels[mode]}
+                  </button>
+                ))}
+              </div>
+
+              {/* ─── Export Dropdown ─── */}
+              <div className="relative">
+                <button
+                  ref={exportButtonRef}
+                  onClick={() => setShowExportDropdown(!showExportDropdown)}
+                  className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Export
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                {showExportDropdown &&
+                  mounted &&
+                  dropdownPosition &&
+                  createPortal(
+                    <div
+                      className="fixed bg-white rounded-xl shadow-2xl border border-gray-100 py-1 fade-in-up"
+                      style={{
+                        zIndex: 999999,
+                        minWidth: "180px",
+                        top: dropdownPosition.top,
+                        left: dropdownPosition.left,
+                        transform: "translateX(-50%)",
+                      }}
+                    >
+                      <button
+                        onClick={handleExportExcel}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors flex items-center gap-2"
+                      >
+                        <span>📊</span> Export to Excel
+                      </button>
+                      <button
+                        onClick={handleExportCSV}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors flex items-center gap-2"
+                      >
+                        <span>📄</span> Export to CSV
+                      </button>
+                    </div>,
+                    document.body,
+                  )}
+              </div>
+
+              {/* ─── Add Client Button ─── */}
+              <button
+                onClick={() => setShowModal(true)}
+                className="cursor-pointer group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 via-red-500 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 btn-ripple overflow-hidden"
               >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              <span>Add New Client</span>
-            </button>
+                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="group-hover:rotate-90 transition-transform duration-300"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>Add New Client</span>
+              </button>
+            </div>
           </div>
 
           {/* Stats Row */}
           {!loading && clients.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-8 fade-in-up">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 fade-in-up">
               <div className="stat-card-glass rounded-xl p-4 flex items-center gap-4 shadow-sm">
                 <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
                   <svg
@@ -390,7 +657,7 @@ export default function ClientsPage() {
                   <p className="text-3xl font-bold text-gray-800">
                     {clients.length}
                   </p>
-                  <p className="text-sm text-gray-500 font-medium">
+                  <p className="text-sm font-medium text-gray-500">
                     Total Clients
                   </p>
                 </div>
@@ -413,7 +680,7 @@ export default function ClientsPage() {
                   <p className="text-3xl font-bold text-gray-800">
                     {clients.filter((c) => c.is_active).length}
                   </p>
-                  <p className="text-sm text-gray-500 font-medium">
+                  <p className="text-sm font-medium text-gray-500">
                     Active Clients
                   </p>
                 </div>
@@ -436,7 +703,7 @@ export default function ClientsPage() {
                   <p className="text-3xl font-bold text-gray-800">
                     {clients.filter((c) => c.contact_email).length}
                   </p>
-                  <p className="text-sm text-gray-500 font-medium">
+                  <p className="text-sm font-medium text-gray-500">
                     With Email
                   </p>
                 </div>
@@ -444,10 +711,9 @@ export default function ClientsPage() {
             </div>
           )}
 
-          {/* Search and Toggle Row */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 fade-in-up">
+          {/* Search and Controls Row */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 fade-in-up">
             <div className="relative max-w-md w-full">
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-red-500/30 to-transparent rounded-xl blur opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
               <svg
                 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-red-500 transition-all duration-200 z-10"
                 viewBox="0 0 24 24"
@@ -463,7 +729,7 @@ export default function ClientsPage() {
                 placeholder="Search clients by name, industry, or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-10 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500/50 transition-all duration-200 shadow-sm text-gray-800"
+                className="w-full pl-11 pr-10 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500/50 transition-all duration-200 shadow-sm text-gray-800 placeholder-gray-500 text-sm font-normal"
               />
               {searchTerm && (
                 <button
@@ -485,7 +751,6 @@ export default function ClientsPage() {
               )}
             </div>
 
-            {/* Toggle Switch for Active/Deactivated */}
             <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl shadow-sm border border-gray-100">
               <span
                 className={`text-sm font-medium ${!showDeactivated ? "text-red-600" : "text-gray-500"}`}
@@ -515,128 +780,196 @@ export default function ClientsPage() {
                 <div className="absolute inset-0 rounded-full border-3 border-gray-200"></div>
                 <div className="absolute inset-0 rounded-full border-3 border-t-red-600 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
               </div>
-              <p className="text-gray-500 font-medium tracking-wide">
+              <p className="text-gray-500 font-medium tracking-wide text-sm">
                 Loading your clients...
               </p>
             </div>
           )}
 
-          {/* Clients Grid - Click to navigate */}
+          {/* ─── Content Based on View Mode ─── */}
           {!loading && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredClients.map((client, idx) => (
-                <div
-                  key={client.id}
-                  className="group relative fade-in-up"
-                  style={{ animationDelay: `${idx * 70}ms` }}
-                  onMouseEnter={() => setHoveredCard(client.id)}
-                  onMouseLeave={() => setHoveredCard(null)}
-                  onClick={() => handleClientClick(client.id)}
-                >
-                  <div
-                    className={`absolute -inset-0.5 bg-gradient-to-r from-red-500 via-rose-400 to-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-md ${hoveredCard === client.id ? "opacity-100" : ""}`}
-                  ></div>
+            <>
+              {/* ─── GRID VIEW ─── */}
+              {viewMode === "grid" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredClients.map((client, idx) => (
+                    <div
+                      key={client.id}
+                      className="group relative fade-in-up"
+                      style={{ animationDelay: `${idx * 70}ms` }}
+                      onMouseEnter={() => setHoveredRow(client.id)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                      onClick={() => handleClientClick(client.id)}
+                    >
+                      <div
+                        className={`absolute -inset-0.5 bg-gradient-to-r from-red-500 via-rose-400 to-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-md ${hoveredRow === client.id ? "opacity-100" : ""}`}
+                      ></div>
 
-                  <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm card-3d overflow-hidden">
-                    <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-500 to-red-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"></div>
+                      <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm card-3d overflow-hidden">
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-500 to-red-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"></div>
 
-                    <div className="p-5">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="relative">
-                          <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
-                            <span className="text-red-600 font-bold text-xl group-hover:scale-110 transition-transform duration-300">
-                              {client.name.charAt(0).toUpperCase()}
+                        <div className="p-5">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="relative">
+                              <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
+                                <span className="text-red-600 font-bold text-xl group-hover:scale-110 transition-transform duration-300">
+                                  {client.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-xs font-semibold backdrop-blur-sm ${client.is_active ? "bg-green-100 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}
+                            >
+                              {client.is_active ? "Active" : "Deactivated"}
+                            </span>
+                          </div>
+
+                          <h3 className="font-bold text-gray-900 text-lg mb-1 tracking-tight">
+                            {client.name}
+                          </h3>
+                          {client.industry && (
+                            <p className="text-sm text-gray-500 mb-3 flex items-center gap-2 font-normal">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                              {client.industry}
+                            </p>
+                          )}
+
+                          <div className="space-y-2.5 text-sm font-normal">
+                            {client.contact_email && (
+                              <div className="flex items-center gap-2.5 text-gray-600 p-1.5 rounded-lg -mx-1.5 hover:bg-gray-50/50 transition-all">
+                                <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center">
+                                  <svg
+                                    width="13"
+                                    height="13"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                    <polyline points="22,6 12,13 2,6" />
+                                  </svg>
+                                </div>
+                                <span className="truncate font-mono text-xs">
+                                  {client.contact_email}
+                                </span>
+                              </div>
+                            )}
+                            {client.contact_phone && (
+                              <div className="flex items-center gap-2.5 text-gray-600 p-1.5 rounded-lg -mx-1.5 hover:bg-gray-50/50 transition-all">
+                                <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center">
+                                  <svg
+                                    width="13"
+                                    height="13"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z" />
+                                  </svg>
+                                </div>
+                                <span>{client.contact_phone}</span>
+                              </div>
+                            )}
+                            {client.address && (
+                              <div className="flex items-start gap-2.5 text-gray-500 text-xs pt-2 mt-1 border-t border-gray-100 p-1.5 rounded-lg -mx-1.5">
+                                <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+                                    <circle cx="12" cy="10" r="3" />
+                                  </svg>
+                                </div>
+                                <span className="line-clamp-2 leading-relaxed">
+                                  {client.address}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 text-right">
+                            <span className="text-xs text-gray-400 group-hover:text-red-500 transition-colors font-normal">
+                              Click to view details →
                             </span>
                           </div>
                         </div>
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold backdrop-blur-sm ${client.is_active ? "bg-green-100 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}
-                        >
-                          {client.is_active ? "Active" : "Deactivated"}
-                        </span>
-                      </div>
-
-                      <h3 className="font-bold text-gray-900 text-lg mb-1 tracking-tight">
-                        {client.name}
-                      </h3>
-                      {client.industry && (
-                        <p className="text-sm text-gray-500 mb-3 flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-                          {client.industry}
-                        </p>
-                      )}
-
-                      <div className="space-y-2.5 text-sm">
-                        {client.contact_email && (
-                          <div className="flex items-center gap-2.5 text-gray-600 p-1.5 rounded-lg -mx-1.5 hover:bg-gray-50/50 transition-all">
-                            <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center">
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                <polyline points="22,6 12,13 2,6" />
-                              </svg>
-                            </div>
-                            <span className="truncate font-mono text-xs">
-                              {client.contact_email}
-                            </span>
-                          </div>
-                        )}
-                        {client.contact_phone && (
-                          <div className="flex items-center gap-2.5 text-gray-600 p-1.5 rounded-lg -mx-1.5 hover:bg-gray-50/50 transition-all">
-                            <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center">
-                              <svg
-                                width="13"
-                                height="13"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z" />
-                              </svg>
-                            </div>
-                            <span>{client.contact_phone}</span>
-                          </div>
-                        )}
-                        {client.address && (
-                          <div className="flex items-start gap-2.5 text-gray-500 text-xs pt-2 mt-1 border-t border-gray-100 p-1.5 rounded-lg -mx-1.5">
-                            <div className="w-7 h-7 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
-                              <svg
-                                width="12"
-                                height="12"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-                                <circle cx="12" cy="10" r="3" />
-                              </svg>
-                            </div>
-                            <span className="line-clamp-2 leading-relaxed">
-                              {client.address}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Click hint */}
-                      <div className="mt-3 text-right">
-                        <span className="text-xs text-gray-400 group-hover:text-red-500 transition-colors">
-                          Click to view details →
-                        </span>
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ─── TABLE VIEW ─── */}
+              {viewMode === "table" && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
+                  <div className="overflow-x-auto">
+                    <table className="client-table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Industry</th>
+                          <th>Email</th>
+                          <th>Phone</th>
+                          <th>Address</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredClients.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="text-center py-12 text-gray-500 text-sm font-normal"
+                            >
+                              No clients found
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredClients.map((client) => (
+                            <tr
+                              key={client.id}
+                              onClick={() => handleClientClick(client.id)}
+                              onMouseEnter={() => setHoveredRow(client.id)}
+                              onMouseLeave={() => setHoveredRow(null)}
+                            >
+                              <td className="font-semibold text-gray-900">
+                                {client.name}
+                              </td>
+                              <td className="text-gray-600">
+                                {client.industry || "—"}
+                              </td>
+                              <td className="text-gray-600">
+                                {client.contact_email || "—"}
+                              </td>
+                              <td className="text-gray-600">
+                                {client.contact_phone || "—"}
+                              </td>
+                              <td className="text-gray-500 text-sm max-w-[200px] truncate">
+                                {client.address || "—"}
+                              </td>
+                              <td>
+                                <span
+                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold ${client.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                                >
+                                  {client.is_active ? "Active" : "Deactivated"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
 
           {/* Empty State */}
@@ -662,7 +995,7 @@ export default function ClientsPage() {
               <h3 className="text-xl font-semibold text-gray-800 mb-2">
                 No clients found
               </h3>
-              <p className="text-gray-500 max-w-sm mx-auto mb-6">
+              <p className="text-gray-500 max-w-sm mx-auto mb-6 text-sm font-normal">
                 {searchTerm
                   ? "Try adjusting your search"
                   : "Add your first client to get started"}
@@ -670,7 +1003,7 @@ export default function ClientsPage() {
               {!searchTerm && (
                 <button
                   onClick={() => setShowModal(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all"
+                  className="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all"
                 >
                   <svg
                     width="18"
@@ -691,175 +1024,223 @@ export default function ClientsPage() {
         </div>
       </div>
 
-      {/* ─── Add Client Modal ──────────────────────────────────────────────── */}
+      {/* ─── ENHANCED ADD CLIENT MODAL ──────────────────────────────────────── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-red-400 to-red-500 rounded-t-2xl"></div>
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-5">
-                  <div>
-                    <h2 className="text-xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-                      Create New Client
-                    </h2>
-                    <p className="text-sm text-gray-400 mt-0.5">
-                      Enter the client details below
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowModal(false)}
-                    className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
+              {/* Subtle accent line - softer and more elegant */}
+              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
+
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Create New Client
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                    Enter the client details below
+                  </p>
                 </div>
-                <form onSubmit={handleCreateClient} className="space-y-4">
-                  <div>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateClient}>
+                {/* Two-column grid layout */}
+                <div className="modal-grid-2">
+                  {/* Client Name - full width */}
+                  <div className="full-width">
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Client Name <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="e.g., ABC Corporation"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏢</span>
+                      <input
+                        type="text"
+                        name="name"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="ABC Corporation"
+                      />
+                    </div>
                   </div>
+
+                  {/* Slug */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Slug (URL identifier)
+                      Slug{" "}
+                      <span className="text-gray-400 text-xs font-normal">
+                        (URL)
+                      </span>
                     </label>
-                    <input
-                      type="text"
-                      name="slug"
-                      value={formData.slug}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all font-mono text-sm text-gray-700"
-                      placeholder="auto-generated-from-name"
-                    />
-                    <p className="text-xs text-gray-400 mt-1.5 ml-1">
-                      Unique URL-friendly identifier for this client
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🔗</span>
+                      <input
+                        type="text"
+                        name="slug"
+                        value={formData.slug}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all font-mono text-sm text-gray-700 placeholder-gray-400"
+                        placeholder="auto-generated"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                      Unique URL-friendly identifier
                     </p>
                   </div>
+
+                  {/* Industry */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Industry
                     </label>
-                    <input
-                      type="text"
-                      name="industry"
-                      value={formData.industry}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="e.g., Technology, Logistics, Healthcare"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏭</span>
+                      <input
+                        type="text"
+                        name="industry"
+                        value={formData.industry}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Technology, Logistics, Healthcare"
+                      />
+                    </div>
                   </div>
+
+                  {/* Contact Email */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Contact Email <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="email"
-                      name="contact_email"
-                      value={formData.contact_email}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="admin@company.com"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">✉️</span>
+                      <input
+                        type="email"
+                        name="contact_email"
+                        value={formData.contact_email}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="admin@company.com"
+                      />
+                    </div>
                   </div>
+
+                  {/* Contact Phone */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Contact Phone
                     </label>
-                    <input
-                      type="tel"
-                      name="contact_phone"
-                      value={formData.contact_phone}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="+91 1234567890"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📞</span>
+                      <input
+                        type="tel"
+                        name="contact_phone"
+                        value={formData.contact_phone}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="+91 1234567890"
+                      />
+                    </div>
                   </div>
+
+                  {/* Address Line 1 */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Address Line 1 <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="text"
-                      name="address_line_1"
-                      value={formData.address_line_1}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="Building/Flat number, Street"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📍</span>
+                      <input
+                        type="text"
+                        name="address_line_1"
+                        value={formData.address_line_1}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Building / Flat, Street"
+                      />
+                    </div>
                   </div>
+
+                  {/* Address Line 2 */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Address Line 2
                     </label>
-                    <input
-                      type="text"
-                      name="address_line_2"
-                      value={formData.address_line_2}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="Area, Locality"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏠</span>
+                      <input
+                        type="text"
+                        name="address_line_2"
+                        value={formData.address_line_2}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Area / Locality"
+                      />
+                    </div>
                   </div>
-                  <div>
+
+                  {/* Address Line 3 - full width */}
+                  <div className="full-width">
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Address Line 3
                     </label>
-                    <input
-                      type="text"
-                      name="address_line_3"
-                      value={formData.address_line_3}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 focus:border-red-500 transition-all input-fancy text-gray-800"
-                      placeholder="City, State, PIN Code"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🗺️</span>
+                      <input
+                        type="text"
+                        name="address_line_3"
+                        value={formData.address_line_3}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="City, State, PIN Code"
+                      />
+                    </div>
                   </div>
-                  <div className="flex gap-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setShowModal(false)}
-                      className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md btn-ripple"
-                    >
-                      {submitting ? (
-                        <>
-                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                          Creating...
-                        </>
-                      ) : (
-                        <>Create Client</>
-                      )}
-                    </button>
-                  </div>
-                </form>
-              </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md btn-ripple"
+                  >
+                    {submitting ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                        Creating...
+                      </>
+                    ) : (
+                      <>Create Client</>
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
