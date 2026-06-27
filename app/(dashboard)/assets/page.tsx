@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 import api from "@/app/lib/api";
 
@@ -49,7 +50,23 @@ interface Asset {
   is_active: boolean;
   created_by: string;
   created_at: string;
+  created_image_url: string | null;
+  latest_image_url: string | null;
+  qr_code_url: string | null;
 }
+
+// ─── Helper: Get user role from JWT token ───────────────────────────────────
+const getUserRoleFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+};
 
 export default function AssetsPage() {
   const router = useRouter();
@@ -69,6 +86,12 @@ export default function AssetsPage() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [imagePreview, setImagePreview] = useState("");
+  const [editImagePreview, setEditImagePreview] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [editUploading, setEditUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Form State ────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
@@ -84,6 +107,7 @@ export default function AssetsPage() {
     purchase_date: "",
     purchase_value: "",
     status: "AVAILABLE",
+    image_url: "",
   });
   const [editFormData, setEditFormData] = useState({
     category_id: "",
@@ -98,6 +122,7 @@ export default function AssetsPage() {
     purchase_date: "",
     purchase_value: "",
     status: "AVAILABLE",
+    image_url: "",
   });
 
   // ─── Assign Form State ────────────────────────────────────────────────────
@@ -146,6 +171,12 @@ export default function AssetsPage() {
       );
       setDepartments(activeDepts);
     } catch (error: any) {
+      // If 403, just set empty array - user doesn't have permission
+      if (error.response?.status === 403) {
+        console.warn("Departments fetch skipped - insufficient permissions");
+        setDepartments([]);
+        return;
+      }
       console.error("Error fetching departments:", error);
     }
   }, []);
@@ -159,6 +190,12 @@ export default function AssetsPage() {
       );
       setUsers(activeUsers);
     } catch (error: any) {
+      // If 403, just set empty array - user doesn't have permission
+      if (error.response?.status === 403) {
+        console.warn("Users fetch skipped - insufficient permissions");
+        setUsers([]);
+        return;
+      }
       console.error("Error fetching users:", error);
     }
   }, []);
@@ -236,6 +273,137 @@ export default function AssetsPage() {
     }
   }, [editFormData.category_id, types]);
 
+  // ─── Image Upload Handler ──────────────────────────────────────────────────
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB");
+      return;
+    }
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    setUploading(true);
+    try {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+
+      const response = await api.post("/upload/asset-image", uploadFormData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const imageUrl = response.data.url;
+      setFormData((prev) => ({ ...prev, image_url: imageUrl }));
+      toast.success("Image uploaded successfully");
+    } catch (error: any) {
+      console.error("Error uploading image:", error);
+      toast.error(error.response?.data?.detail || "Failed to upload image");
+      setImagePreview("");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleEditImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB");
+      return;
+    }
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    setEditUploading(true);
+    try {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+
+      const response = await api.post("/upload/asset-image", uploadFormData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const imageUrl = response.data.url;
+      setEditFormData((prev) => ({ ...prev, image_url: imageUrl }));
+      toast.success("Image uploaded successfully");
+    } catch (error: any) {
+      console.error("Error uploading image:", error);
+      toast.error(error.response?.data?.detail || "Failed to upload image");
+      setEditImagePreview("");
+    } finally {
+      setEditUploading(false);
+      if (editFileInputRef.current) {
+        editFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // ─── Image URL handler with preview (fallback) ──────────────────────────
+  const handleImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const url = e.target.value;
+    setFormData({ ...formData, image_url: url });
+    setImagePreview(url);
+  };
+
+  const handleEditImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const url = e.target.value;
+    setEditFormData({ ...editFormData, image_url: url });
+    setEditImagePreview(url);
+  };
+
+  // ─── Remove Image ──────────────────────────────────────────────────────────
+  const removeImage = () => {
+    setFormData({ ...formData, image_url: "" });
+    setImagePreview("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removeEditImage = () => {
+    setEditFormData({ ...editFormData, image_url: "" });
+    setEditImagePreview("");
+    if (editFileInputRef.current) {
+      editFileInputRef.current.value = "";
+    }
+  };
+
   // ─── Create Asset ──────────────────────────────────────────────────────────
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,6 +443,7 @@ export default function AssetsPage() {
         payload.purchase_date = formData.purchase_date;
       if (formData.purchase_value)
         payload.purchase_value = parseFloat(formData.purchase_value);
+      if (formData.image_url) payload.created_image_url = formData.image_url;
 
       await api.post("/assets", payload);
       toast.success("Asset created successfully");
@@ -292,7 +461,9 @@ export default function AssetsPage() {
         purchase_date: "",
         purchase_value: "",
         status: "AVAILABLE",
+        image_url: "",
       });
+      setImagePreview("");
       fetchAssets();
     } catch (error: any) {
       console.error("Error creating asset:", error);
@@ -344,11 +515,14 @@ export default function AssetsPage() {
         payload.purchase_date = editFormData.purchase_date;
       if (editFormData.purchase_value)
         payload.purchase_value = parseFloat(editFormData.purchase_value);
+      if (editFormData.image_url)
+        payload.created_image_url = editFormData.image_url;
 
       await api.patch(`/assets/${selectedAsset.id}`, payload);
       toast.success("Asset updated successfully");
       setShowEditModal(false);
       setSelectedAsset(null);
+      setEditImagePreview("");
       fetchAssets();
     } catch (error: any) {
       console.error("Error updating asset:", error);
@@ -436,7 +610,9 @@ export default function AssetsPage() {
       purchase_date: asset.purchase_date || "",
       purchase_value: asset.purchase_value?.toString() || "",
       status: asset.status || "AVAILABLE",
+      image_url: asset.created_image_url || "",
     });
+    setEditImagePreview(asset.created_image_url || "");
     setShowEditModal(true);
   };
 
@@ -742,6 +918,56 @@ export default function AssetsPage() {
           background-position: right 14px center;
           padding-right: 40px;
         }
+
+        .image-preview {
+          border-radius: 12px;
+          overflow: hidden;
+          background: #fafbfc;
+          border: 1px solid #e2e8f0;
+        }
+        .image-preview img {
+          width: 100%;
+          max-height: 200px;
+          object-fit: contain;
+        }
+        .image-thumbnail {
+          width: 48px;
+          height: 48px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .upload-dropzone {
+          border: 2px dashed #e2e8f0;
+          border-radius: 12px;
+          padding: 24px;
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          background: #fafbfc;
+        }
+        .upload-dropzone:hover {
+          border-color: #dc2626;
+          background: #fef2f2;
+        }
+        .upload-dropzone.dragging {
+          border-color: #dc2626;
+          background: #fef2f2;
+        }
+        .upload-dropzone .upload-icon {
+          font-size: 32px;
+          margin-bottom: 8px;
+        }
+        .upload-dropzone .upload-text {
+          color: #64748b;
+          font-size: 14px;
+        }
+        .upload-dropzone .upload-subtext {
+          color: #94a3b8;
+          font-size: 12px;
+          margin-top: 4px;
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -956,6 +1182,7 @@ export default function AssetsPage() {
                 <table className="asset-table">
                   <thead>
                     <tr>
+                      <th>Image</th>
                       <th>Name</th>
                       <th>Category</th>
                       <th>Type</th>
@@ -969,7 +1196,7 @@ export default function AssetsPage() {
                     {filteredAssets.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="text-center py-12 text-gray-500 text-sm font-normal"
                         >
                           {searchTerm || statusFilter
@@ -984,6 +1211,22 @@ export default function AssetsPage() {
                           onClick={() => router.push(`/assets/${asset.id}`)}
                           className="cursor-pointer hover:bg-red-50 transition-colors"
                         >
+                          <td>
+                            {asset.created_image_url ? (
+                              <img
+                                src={asset.created_image_url}
+                                alt={asset.name}
+                                className="image-thumbnail"
+                                onError={(e) =>
+                                  ((
+                                    e.target as HTMLImageElement
+                                  ).style.display = "none")
+                                }
+                              />
+                            ) : (
+                              <span className="text-gray-400 text-xs">—</span>
+                            )}
+                          </td>
                           <td className="font-semibold text-gray-900">
                             {asset.name}
                           </td>
@@ -1101,13 +1344,11 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: Create Asset Modal ─── */}
+      {/* ─── ENHANCED: Create Asset Modal with Image Upload ─── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
-
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">
@@ -1400,6 +1641,109 @@ export default function AssetsPage() {
                     </div>
                   </div>
 
+                  {/* Image Upload - full width */}
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Asset Image
+                    </label>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      disabled={uploading}
+                    />
+                    <div
+                      className="upload-dropzone"
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.add("dragging");
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove("dragging");
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove("dragging");
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const inputEvent = new Event("change", {
+                            bubbles: true,
+                          });
+                          Object.defineProperty(inputEvent, "target", {
+                            value: { files: [file] },
+                          });
+                          handleImageUpload(inputEvent as any);
+                        }
+                      }}
+                    >
+                      {uploading ? (
+                        <div className="flex items-center justify-center gap-3 py-4">
+                          <span className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
+                          <span className="text-sm text-gray-500">
+                            Uploading...
+                          </span>
+                        </div>
+                      ) : formData.image_url ? (
+                        <div className="flex items-center justify-center gap-3 py-2">
+                          <span className="text-green-500 text-lg">✅</span>
+                          <span className="text-sm text-gray-600">
+                            Image uploaded successfully
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeImage();
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 font-medium"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="upload-icon">🖼️</div>
+                          <p className="upload-text">
+                            Click or drag to upload image
+                          </p>
+                          <p className="upload-subtext">
+                            PNG, JPG, JPEG up to 5MB
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Image Preview */}
+                    {imagePreview && (
+                      <div className="image-preview p-2 mt-3">
+                        <img
+                          src={imagePreview}
+                          alt="Asset preview"
+                          className="w-full max-h-48 object-contain"
+                          onError={() => setImagePreview("")}
+                        />
+                      </div>
+                    )}
+
+                    {/* Fallback URL input */}
+                    <div className="mt-3">
+                      <p className="text-xs text-gray-400 mb-1">
+                        Or enter image URL directly
+                      </p>
+                      <input
+                        type="text"
+                        value={formData.image_url}
+                        onChange={handleImageUrlChange}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 text-sm"
+                        placeholder="https://example.com/asset-image.jpg"
+                        disabled={uploading}
+                      />
+                    </div>
+                  </div>
+
                   {/* Status - full width */}
                   <div className="full-width">
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -1436,7 +1780,7 @@ export default function AssetsPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || uploading}
                     className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
                   >
                     {submitting ? (
@@ -1455,13 +1799,11 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {/* ─── ENHANCED: Edit Asset Modal ─── */}
+      {/* ─── ENHANCED: Edit Asset Modal with Image Upload ─── */}
       {showEditModal && selectedAsset && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div> */}
-
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800">
@@ -1758,6 +2100,109 @@ export default function AssetsPage() {
                     </div>
                   </div>
 
+                  {/* Image Upload - full width */}
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Asset Image
+                    </label>
+                    <input
+                      ref={editFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleEditImageUpload}
+                      className="hidden"
+                      disabled={editUploading}
+                    />
+                    <div
+                      className="upload-dropzone"
+                      onClick={() => editFileInputRef.current?.click()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.add("dragging");
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove("dragging");
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.classList.remove("dragging");
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const inputEvent = new Event("change", {
+                            bubbles: true,
+                          });
+                          Object.defineProperty(inputEvent, "target", {
+                            value: { files: [file] },
+                          });
+                          handleEditImageUpload(inputEvent as any);
+                        }
+                      }}
+                    >
+                      {editUploading ? (
+                        <div className="flex items-center justify-center gap-3 py-4">
+                          <span className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
+                          <span className="text-sm text-gray-500">
+                            Uploading...
+                          </span>
+                        </div>
+                      ) : editFormData.image_url ? (
+                        <div className="flex items-center justify-center gap-3 py-2">
+                          <span className="text-green-500 text-lg">✅</span>
+                          <span className="text-sm text-gray-600">
+                            Image uploaded successfully
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeEditImage();
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 font-medium"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="upload-icon">🖼️</div>
+                          <p className="upload-text">
+                            Click or drag to upload image
+                          </p>
+                          <p className="upload-subtext">
+                            PNG, JPG, JPEG up to 5MB
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Image Preview */}
+                    {editImagePreview && (
+                      <div className="image-preview p-2 mt-3">
+                        <img
+                          src={editImagePreview}
+                          alt="Asset preview"
+                          className="w-full max-h-48 object-contain"
+                          onError={() => setEditImagePreview("")}
+                        />
+                      </div>
+                    )}
+
+                    {/* Fallback URL input */}
+                    <div className="mt-3">
+                      <p className="text-xs text-gray-400 mb-1">
+                        Or enter image URL directly
+                      </p>
+                      <input
+                        type="text"
+                        value={editFormData.image_url}
+                        onChange={handleEditImageUrlChange}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
+                        placeholder="https://example.com/asset-image.jpg"
+                        disabled={editUploading}
+                      />
+                    </div>
+                  </div>
+
                   {/* Status - full width */}
                   <div className="full-width">
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -1797,7 +2242,7 @@ export default function AssetsPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || editUploading}
                     className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
                   >
                     {submitting ? (

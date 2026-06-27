@@ -179,6 +179,7 @@ export default function UsersPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [dropdownPosition, setDropdownPosition] = useState<{
     top: number;
     left: number;
@@ -255,10 +256,13 @@ export default function UsersPage() {
   // ─── Fetch departments ──────────────────────────────────────────────────────
   const fetchDepartments = async () => {
     try {
+      setDepartmentsLoading(true);
       const response = await api.get("/departments");
       setDepartments(response.data);
     } catch (error: any) {
       console.error("Error fetching departments:", error);
+    } finally {
+      setDepartmentsLoading(false);
     }
   };
 
@@ -447,6 +451,7 @@ export default function UsersPage() {
         ...prev,
         employee_id: generateEmployeeId(),
       }));
+      fetchDepartments();
       fetchSubscribedServices();
       if (isPlatformAdmin) {
         fetchClients();
@@ -520,11 +525,6 @@ export default function UsersPage() {
 
     // ─── Phone validation ───
     if (!formData.phone || formData.phone.length !== 10) {
-      toast.error("Please enter a valid 10-digit phone number");
-      return;
-    }
-    // ─── Phone validation ───
-    if (!editFormData.phone || editFormData.phone.length !== 10) {
       toast.error("Please enter a valid 10-digit phone number");
       return;
     }
@@ -1774,14 +1774,16 @@ export default function UsersPage() {
                         }
                         required
                         className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
+                        disabled={departmentsLoading}
                       >
                         <option value="">
-                          {isPlatformAdmin && !formData.client_id
-                            ? "Select a client first"
-                            : filteredDepartments.length === 0 &&
-                                !isPlatformAdmin
-                              ? "Create a department first"
-                              : "Select Department"}
+                          {departmentsLoading
+                            ? "⏳ Loading departments..."
+                            : isPlatformAdmin && !formData.client_id
+                              ? "Select a client first"
+                              : filteredDepartments.length === 0
+                                ? "No departments found"
+                                : "Select Department"}
                         </option>
                         {filteredDepartments.map((dept) => (
                           <option key={dept.id} value={dept.id}>
@@ -1791,11 +1793,13 @@ export default function UsersPage() {
                       </select>
                     </div>
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
-                      {isPlatformAdmin && !formData.client_id
-                        ? "Select a client to see departments"
-                        : filteredDepartments.length === 0 && !isPlatformAdmin
-                          ? "Create a department first in the Departments section"
-                          : "Select a department for this user"}
+                      {departmentsLoading
+                        ? "Loading departments..."
+                        : isPlatformAdmin && !formData.client_id
+                          ? "Select a client to see departments"
+                          : filteredDepartments.length === 0
+                            ? "No departments available. Create one first."
+                            : "Select a department for this user"}
                     </p>
                   </div>
 

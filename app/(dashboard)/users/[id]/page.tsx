@@ -15,6 +15,7 @@ interface User {
   department_id: string;
   role: string;
   is_active: boolean;
+  custom_role_id: string | null;
 }
 
 interface Department {
@@ -22,6 +23,21 @@ interface Department {
   name: string;
   code: string;
   is_active: boolean;
+}
+
+interface SubscribedService {
+  id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+}
+
+interface Permission {
+  service_id: string;
+  can_create: boolean;
+  can_read: boolean;
+  can_update: boolean;
+  can_delete: boolean;
 }
 
 export default function UserDetailsPage() {
@@ -42,6 +58,39 @@ export default function UserDetailsPage() {
     department_id: "",
   });
   const [departments, setDepartments] = useState<Department[]>([]);
+  
+  // ─── Permission states ──────────────────────────────────────────────────────
+  const [subscribedServices, setSubscribedServices] = useState<SubscribedService[]>([]);
+  const [editPermissions, setEditPermissions] = useState<Record<string, Permission>>({});
+
+  // ─── Get client_id from token ─────────────────────────────────────────────
+  const getClientIdFromToken = () => {
+    if (typeof window === "undefined") return "";
+    const token = localStorage.getItem("access_token");
+    if (!token) return "";
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      return payload.client_id || "";
+    } catch {
+      return "";
+    }
+  };
+
+  // ─── Fetch subscribed services ─────────────────────────────────────────────
+  const fetchSubscribedServices = async () => {
+    try {
+      const clientId = getClientIdFromToken();
+      if (!clientId) {
+        setSubscribedServices([]);
+        return;
+      }
+      const response = await api.get(`/clients/${clientId}/subscriptions/services`);
+      setSubscribedServices(response.data || []);
+    } catch (error: any) {
+      console.error("Error fetching subscribed services:", error);
+      setSubscribedServices([]);
+    }
+  };
 
   const fetchUser = async () => {
     try {
@@ -57,6 +106,9 @@ export default function UserDetailsPage() {
           setDepartment(null);
         }
       }
+
+      // Fetch subscribed services for permissions
+      await fetchSubscribedServices();
     } catch (error: any) {
       console.error("Error fetching user:", error);
       toast.error(error.response?.data?.detail || "Failed to fetch user");
@@ -75,6 +127,54 @@ export default function UserDetailsPage() {
     }
   };
 
+  // ─── Fetch current permissions when editing ──────────────────────────────
+  const fetchUserPermissions = async () => {
+    if (!user || !user.custom_role_id) {
+      // If no custom role, initialize all permissions as false
+      const initialPerms: Record<string, Permission> = {};
+      subscribedServices.forEach((service) => {
+        initialPerms[service.id] = {
+          service_id: service.id,
+          can_create: false,
+          can_read: false,
+          can_update: false,
+          can_delete: false,
+        };
+      });
+      setEditPermissions(initialPerms);
+      return;
+    }
+
+    try {
+      const response = await api.get(`/roles/${user.custom_role_id}/permissions`);
+      const perms: Record<string, Permission> = {};
+      (response.data || []).forEach((p: any) => {
+        perms[p.service_id] = {
+          service_id: p.service_id,
+          can_create: p.can_create,
+          can_read: p.can_read,
+          can_update: p.can_update,
+          can_delete: p.can_delete,
+        };
+      });
+      setEditPermissions(perms);
+    } catch (error: any) {
+      console.error("Error fetching permissions:", error);
+      // Fallback: initialize all as false
+      const initialPerms: Record<string, Permission> = {};
+      subscribedServices.forEach((service) => {
+        initialPerms[service.id] = {
+          service_id: service.id,
+          can_create: false,
+          can_read: false,
+          can_update: false,
+          can_delete: false,
+        };
+      });
+      setEditPermissions(initialPerms);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -87,6 +187,29 @@ export default function UserDetailsPage() {
     }
   }, [userId]);
 
+  // ─── Fetch permissions when edit modal opens ─────────────────────────────
+  useEffect(() => {
+    if (showEditModal && user) {
+      fetchUserPermissions();
+    }
+  }, [showEditModal, user]);
+
+  // ─── Handle permission change ─────────────────────────────────────────────
+  const handlePermissionChange = (
+    serviceId: string,
+    permissionType: keyof Omit<Permission, "service_id">,
+    checked: boolean
+  ) => {
+    setEditPermissions((prev) => ({
+      ...prev,
+      [serviceId]: {
+        ...prev[serviceId],
+        service_id: serviceId,
+        [permissionType]: checked,
+      },
+    }));
+  };
+
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -95,7 +218,24 @@ export default function UserDetailsPage() {
       const endpoint = user.role === "MANAGER" 
         ? `/users/managers/${user.id}`
         : `/users/${user.id}`;
-      await api.patch(endpoint, editFormData);
+      
+      // ─── Update user basic info ──────────────────────────────────────────
+      await api.patch(endpoint, {
+        full_name: editFormData.full_name.trim(),
+        phone: editFormData.phone || "",
+        department_id: editFormData.department_id,
+      });
+
+      // ─── Update permissions if user has a custom role ────────────────────
+      if (user.custom_role_id) {
+        const permissionsArray = Object.values(editPermissions);
+        await api.patch(`/roles/${user.custom_role_id}/permissions`, {
+          permissions: permissionsArray,
+        });
+      } else if (user.role === "USER" && subscribedServices.length > 0) {
+        toast.error("User doesn't have a custom role. Permissions cannot be updated.");
+      }
+
       toast.success("User updated successfully");
       setShowEditModal(false);
       fetchUser();
@@ -208,12 +348,13 @@ export default function UserDetailsPage() {
         .modal-content {
           background: white;
           border-radius: 28px;
-          width: 90%;
-          max-width: 560px;
+          width: 95%;
+          max-width: 720px;
           max-height: 85vh;
           overflow-y: auto;
           animation: fadeInUp 0.35s ease;
           box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4);
+          padding: 24px 28px;
         }
         .delete-modal { max-width: 400px; }
         
@@ -235,6 +376,24 @@ export default function UserDetailsPage() {
         .input-fancy:focus {
           background: white;
           transform: scale(1.01);
+        }
+
+        .perm-checkbox {
+          accent-color: #dc2626;
+        }
+        .perm-label {
+          font-size: 12px;
+          font-weight: 500;
+          color: #374151;
+        }
+
+        .modal-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px 20px;
+        }
+        .modal-grid-2 .full-width {
+          grid-column: 1 / -1;
         }
       `}</style>
 
@@ -371,54 +530,165 @@ export default function UserDetailsPage() {
         </div>
       </div>
 
-      {/* ─── UPDATED: Edit User Modal with Department Dropdown ─── */}
+      {/* ─── ENHANCED: Edit User Modal with Permissions ─── */}
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
+            <div className="relative">
+              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div> */}
+
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">Edit User</h2>
-                  <p className="text-sm text-gray-400">Update user information</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Update user information and permissions</p>
                 </div>
-                <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <button 
+                  onClick={() => setShowEditModal(false)} 
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleUpdateUser} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Full Name <span className="text-red-500">*</span></label>
-                  <input type="text" value={editFormData.full_name} onChange={(e) => setEditFormData({ ...editFormData, full_name: e.target.value })} required className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone</label>
-                  <input type="tel" value={editFormData.phone} onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy" />
-                </div>
-                {/* ─── UPDATED: Department Dropdown with Active Filter ─── */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Department</label>
-                  <select 
-                    value={editFormData.department_id} 
-                    onChange={(e) => setEditFormData({ ...editFormData, department_id: e.target.value })} 
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all bg-white"
-                  >
-                    <option value="">Select Department</option>
-                    {departments
-                      .filter((dept) => dept.is_active !== false)
-                      .map((dept) => (
-                        <option key={dept.id} value={dept.id}>{dept.name}</option>
-                      ))}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">Only active departments are shown</p>
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                  <button type="submit" disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md">
-                    {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Update User"}
-                  </button>
+
+              <form onSubmit={handleUpdateUser}>
+                <div className="space-y-4">
+                  {/* Full Name */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      value={editFormData.full_name} 
+                      onChange={(e) => setEditFormData({ ...editFormData, full_name: e.target.value })} 
+                      required 
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal" 
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone</label>
+                    <input 
+                      type="tel" 
+                      value={editFormData.phone} 
+                      onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })} 
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal" 
+                    />
+                  </div>
+
+                  {/* Department */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">Department</label>
+                    <select 
+                      value={editFormData.department_id} 
+                      onChange={(e) => setEditFormData({ ...editFormData, department_id: e.target.value })} 
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all bg-white text-gray-800 text-sm font-normal"
+                    >
+                      <option value="">Select Department</option>
+                      {departments
+                        .filter((dept) => dept.is_active !== false)
+                        .map((dept) => (
+                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">Only active departments are shown</p>
+                  </div>
+
+                  {/* ─── PERMISSIONS SECTION ─── */}
+                  {user.role === "USER" && subscribedServices.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Service Permissions
+                      </label>
+                      <div className="border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto">
+                        <div className="grid grid-cols-1 gap-3">
+                          {subscribedServices.map((service) => (
+                            <div
+                              key={service.id}
+                              className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg transition-all"
+                            >
+                              <span className="text-sm font-medium text-gray-700 min-w-[100px]">
+                                {service.name}
+                              </span>
+                              <div className="flex gap-3">
+                                {["create", "read", "update", "delete"].map((perm) => (
+                                  <label
+                                    key={perm}
+                                    className="flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        editPermissions[service.id]?.[
+                                          `can_${perm}` as keyof Omit<Permission, "service_id">
+                                        ] || false
+                                      }
+                                      onChange={(e) =>
+                                        handlePermissionChange(
+                                          service.id,
+                                          `can_${perm}` as keyof Omit<Permission, "service_id">,
+                                          e.target.checked
+                                        )
+                                      }
+                                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500 perm-checkbox"
+                                    />
+                                    <span className="text-xs text-gray-600 font-medium">
+                                      {perm.charAt(0).toUpperCase() + perm.slice(1)}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                        Select permissions for each service. Only purchased services are shown.
+                      </p>
+                    </div>
+                  )}
+
+                  {user.role === "MANAGER" && (
+                    <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
+                      <p className="text-sm text-gray-500 font-normal">
+                        Managers have full permissions by default. Permissions cannot be modified.
+                      </p>
+                    </div>
+                  )}
+
+                  {user.role === "CLIENT_ADMIN" && (
+                    <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
+                      <p className="text-sm text-gray-500 font-normal">
+                        Client Admins have full permissions by default. Permissions cannot be modified.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-3 pt-4 border-t border-gray-100">
+                    <button 
+                      type="button" 
+                      onClick={() => setShowEditModal(false)} 
+                      className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit" 
+                      disabled={submitting} 
+                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                    >
+                      {submitting ? (
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        "Update User"
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
@@ -443,8 +713,8 @@ export default function UserDetailsPage() {
                 Are you sure you want to deactivate <span className="font-semibold text-gray-700">{user.full_name}</span>?
               </p>
               <div className="flex gap-3">
-                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                <button onClick={handleDeleteUser} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm">Cancel</button>
+                <button onClick={handleDeleteUser} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md">
                   {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Yes, Deactivate"}
                 </button>
               </div>
@@ -470,8 +740,8 @@ export default function UserDetailsPage() {
                 Are you sure you want to restore <span className="font-semibold text-gray-700">{user.full_name}</span>?
               </p>
               <div className="flex gap-3">
-                <button onClick={() => setShowRestoreConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold">Cancel</button>
-                <button onClick={handleRestoreUser} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold">
+                <button onClick={() => setShowRestoreConfirm(false)} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm">Cancel</button>
+                <button onClick={handleRestoreUser} disabled={submitting} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md">
                   {submitting ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "Yes, Restore"}
                 </button>
               </div>

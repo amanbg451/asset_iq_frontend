@@ -22,6 +22,7 @@ interface AssetDetail {
   status: string;
   is_active: boolean;
   qr_code_url: string | null;
+  created_image_url: string | null;
   latest_image_url: string | null;
   current_latitude: number | null;
   current_longitude: number | null;
@@ -92,6 +93,7 @@ export default function AssetDetailPage() {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editImagePreview, setEditImagePreview] = useState("");
 
   // Form states
   const [editFormData, setEditFormData] = useState({
@@ -107,6 +109,7 @@ export default function AssetDetailPage() {
     purchase_date: "",
     purchase_value: "",
     status: "",
+    image_url: "",
   });
   const [assignFormData, setAssignFormData] = useState({
     user_id: "",
@@ -216,6 +219,14 @@ export default function AssetDetailPage() {
     return new Date(date).toLocaleString();
   };
 
+  // ─── Format Purchase Value ──────────────────────────────────────────────────
+  const formatPurchaseValue = (value: string | number | null) => {
+    if (!value) return "—";
+    const num = typeof value === "string" ? parseFloat(value) : value;
+    if (isNaN(num)) return "—";
+    return `$${num.toFixed(2)}`;
+  };
+
   // ─── Edit Asset ────────────────────────────────────────────────────────────
   const openEditModal = () => {
     if (!asset) return;
@@ -232,8 +243,17 @@ export default function AssetDetailPage() {
       purchase_date: asset.purchase_date || "",
       purchase_value: asset.purchase_value?.toString() || "",
       status: asset.status || "AVAILABLE",
+      image_url: asset.created_image_url || "",
     });
+    setEditImagePreview(asset.created_image_url || "");
     setShowEditModal(true);
+  };
+
+  // ─── Image URL handler with preview ──────────────────────────────────────
+  const handleEditImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const url = e.target.value;
+    setEditFormData({ ...editFormData, image_url: url });
+    setEditImagePreview(url);
   };
 
   const handleUpdateAsset = async (e: React.FormEvent) => {
@@ -262,10 +282,12 @@ export default function AssetDetailPage() {
         payload.purchase_date = editFormData.purchase_date;
       if (editFormData.purchase_value)
         payload.purchase_value = parseFloat(editFormData.purchase_value);
+      if (editFormData.image_url) payload.created_image_url = editFormData.image_url;
 
       await api.patch(`/assets/${asset.id}`, payload);
       toast.success("Asset updated successfully");
       setShowEditModal(false);
+      setEditImagePreview("");
       fetchAssetData();
     } catch (error: any) {
       console.error("Error updating asset:", error);
@@ -379,14 +401,6 @@ export default function AssetDetailPage() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  // ─── Format Purchase Value ──────────────────────────────────────────────────
-  const formatPurchaseValue = (value: string | number | null) => {
-    if (!value) return "—";
-    const num = typeof value === "string" ? parseFloat(value) : value;
-    if (isNaN(num)) return "—";
-    return `$${num.toFixed(2)}`;
   };
 
   // ─── Loading State ────────────────────────────────────────────────────────
@@ -662,6 +676,28 @@ export default function AssetDetailPage() {
           top: 14px;
           transform: none;
         }
+
+        .asset-image-container {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #fafbfc;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          overflow: hidden;
+          min-height: 120px;
+        }
+        .asset-image-container img {
+          width: 100%;
+          max-height: 200px;
+          object-fit: contain;
+        }
+        .asset-image-container .no-image {
+          color: #9ca3af;
+          font-size: 13px;
+          padding: 20px;
+          text-align: center;
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -747,12 +783,12 @@ export default function AssetDetailPage() {
               >
                 QR Code
               </button>
-              {/* <button
+              <button
                 onClick={() => setShowVerifyModal(true)}
                 className="px-3 py-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-xs cursor-pointer"
               >
                 Verify
-              </button> */}
+              </button>
               <button
                 onClick={openEditModal}
                 className="px-3 py-1.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold text-xs cursor-pointer"
@@ -794,6 +830,51 @@ export default function AssetDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column */}
                 <div className="space-y-6">
+                  {/* Asset Image Card */}
+                  <div className="info-card p-6">
+                    <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#dc2626"
+                        strokeWidth="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path d="M21 15l-5-5L5 21" />
+                      </svg>
+                      Asset Image
+                    </h3>
+                    <div className="asset-image-container">
+                      {asset.created_image_url ? (
+                        <img
+                          src={asset.created_image_url}
+                          alt={asset.name}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = "none";
+                            const parent = (e.target as HTMLImageElement).parentElement;
+                            if (parent) {
+                              const fallback = document.createElement("div");
+                              fallback.className = "no-image";
+                              fallback.textContent = "Image failed to load";
+                              parent.appendChild(fallback);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="no-image">
+                          <div className="text-4xl mb-2">🖼️</div>
+                          <p>No image available</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Add an image by editing the asset
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="info-card p-6">
                     <h3 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
                       <svg
@@ -1286,13 +1367,11 @@ export default function AssetDetailPage() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: EDIT MODAL ─── */}
+      {/* ─── ENHANCED: EDIT MODAL with Image ─── */}
       {showEditModal && asset && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div> */}
-
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-lg font-bold text-gray-800">
@@ -1555,6 +1634,38 @@ export default function AssetDetailPage() {
                     </div>
                   </div>
 
+                  {/* Image URL - full width */}
+                  <div className="full-width">
+                    <label className="modal-label">Image URL</label>
+                    <div className="input-icon-wrapper">
+                      <span className="modal-input-icon">🖼️</span>
+                      <input
+                        type="text"
+                        value={editFormData.image_url}
+                        onChange={handleEditImageUrlChange}
+                        className="modal-input"
+                        placeholder="https://example.com/asset-image.jpg"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 font-normal">
+                      Enter a URL for the asset image (optional)
+                    </p>
+                  </div>
+
+                  {/* Image Preview */}
+                  {editImagePreview && (
+                    <div className="full-width">
+                      <div className="image-preview p-2 border border-gray-200 rounded-xl bg-gray-50">
+                        <img
+                          src={editImagePreview}
+                          alt="Asset preview"
+                          className="w-full max-h-40 object-contain rounded-lg"
+                          onError={() => setEditImagePreview("")}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Description - full width */}
                   <div className="full-width">
                     <label className="modal-label">Description</label>
@@ -1631,7 +1742,7 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* ─── ENHANCED: ASSIGN MODAL ─── */}
+      {/* ─── ASSIGN MODAL ─── */}
       {showAssignModal && asset && (
         <div
           className="modal-overlay"
@@ -1731,8 +1842,8 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* ─── ENHANCED: VERIFY MODAL ─── */}
-      {/* {showVerifyModal && asset && (
+      {/* ─── VERIFY MODAL ─── */}
+      {showVerifyModal && asset && (
         <div
           className="modal-overlay"
           onClick={() => setShowVerifyModal(false)}
@@ -1897,9 +2008,9 @@ export default function AssetDetailPage() {
             </div>
           </div>
         </div>
-      )} */}
+      )}
 
-      {/* ─── ENHANCED: QR CODE MODAL ─── */}
+      {/* ─── QR CODE MODAL ─── */}
       {showQRModal && asset && (
         <div className="modal-overlay" onClick={() => setShowQRModal(false)}>
           <div
@@ -1907,8 +2018,6 @@ export default function AssetDetailPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-400/60 via-purple-300/40 to-purple-400/60 rounded-t-2xl"></div> */}
-
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-lg font-bold text-gray-800">QR Code</h2>
@@ -1966,7 +2075,7 @@ export default function AssetDetailPage() {
         </div>
       )}
 
-      {/* ─── ENHANCED: DELETE CONFIRMATION ─── */}
+      {/* ─── DELETE CONFIRMATION ─── */}
       {showDeleteConfirm && asset && (
         <div
           className="modal-overlay"

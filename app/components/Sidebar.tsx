@@ -13,6 +13,13 @@ interface ServiceMenuItem {
   name: string;
   path: string;
   icon: ReactNode;
+  submenu?: SubMenuItem[];
+}
+
+interface SubMenuItem {
+  name: string;
+  path: string;
+  icon: ReactNode;
 }
 
 // All possible service-based menu items
@@ -79,6 +86,44 @@ const serviceMenuMap: ServiceMenuItem[] = [
         <line x1="7" y1="7" x2="7.01" y2="7" />
       </svg>
     ),
+    submenu: [
+      {
+        name: "Asset Categories",
+        path: "/assets/categories",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+        ),
+      },
+      {
+        name: "Asset Types",
+        path: "/assets/types",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
     code: "TRACKING",
@@ -361,11 +406,11 @@ const getClientIdFromToken = () => {
   }
 };
 
-// ─── Menu Item Interface ─────────────────────────────────────────────────────
 interface MenuItem {
   name: string;
   path: string;
   icon: ReactNode;
+  submenu?: SubMenuItem[];
 }
 
 // ─── User Profile Interface ──────────────────────────────────────────────────
@@ -383,12 +428,23 @@ export default function Sidebar() {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(
+    {},
+  );
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("User");
   const [userEmail, setUserEmail] = useState<string>("");
   const [userInitials, setUserInitials] = useState<string>("U");
   const [dynamicMenuItems, setDynamicMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ─── Toggle Submenu ──────────────────────────────────────────────────────────
+  const toggleSubmenu = (menuName: string) => {
+    setExpandedMenus((prev) => ({
+      ...prev,
+      [menuName]: !prev[menuName],
+    }));
+  };
 
   // ─── Fetch User Profile ─────────────────────────────────────────────────────
   const fetchUserProfile = async () => {
@@ -458,6 +514,7 @@ export default function Sidebar() {
       const role = getUserRole();
       setUserRole(role);
 
+      // ─── Platform Admin ──────────────────────────────────────────────────────
       if (role === "ADMIN") {
         const allItems: MenuItem[] = [
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
@@ -466,6 +523,11 @@ export default function Sidebar() {
             name: s.name,
             path: s.path,
             icon: s.icon,
+            submenu: s.submenu?.map((sub) => ({
+              name: sub.name,
+              path: sub.path,
+              icon: sub.icon,
+            })),
           })),
           { name: "Settings", path: "/settings", icon: getSettingsIcon() },
         ];
@@ -474,11 +536,26 @@ export default function Sidebar() {
         return;
       }
 
+      // ─── Client Admin ────────────────────────────────────────────────────────
       if (role === "CLIENT_ADMIN") {
         const clientId = getClientIdFromToken();
         if (!clientId) {
           setLoading(false);
           return;
+        }
+
+        let userPermissions: Record<string, { can_read: boolean }> = {};
+        try {
+          const permResponse = await api.get("/users/me/services");
+          const perms = permResponse.data || [];
+          perms.forEach((p: any) => {
+            // ✅ FIX: Use 'code' instead of 'service_code'
+            userPermissions[p.code] = {
+              can_read: p.can_read || false,
+            };
+          });
+        } catch (error) {
+          console.warn("Could not fetch user permissions");
         }
 
         const response = await api.get(
@@ -490,14 +567,23 @@ export default function Sidebar() {
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
         ];
 
-        purchasedServices.forEach((service: { code: string }) => {
+        purchasedServices.forEach((service: { code: string; name: string }) => {
           const menuItem = serviceMenuMap.find((s) => s.code === service.code);
           if (menuItem) {
-            menuItems.push({
-              name: menuItem.name,
-              path: menuItem.path,
-              icon: menuItem.icon,
-            });
+            const hasReadPermission =
+              userPermissions[service.code]?.can_read !== false;
+            if (hasReadPermission) {
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
           }
         });
 
@@ -512,6 +598,54 @@ export default function Sidebar() {
         return;
       }
 
+      // ─── Regular User ──────────────────────────────────────────────────────
+      if (role === "USER") {
+        let userPermissions: Record<string, { can_read: boolean }> = {};
+        try {
+          const permResponse = await api.get("/users/me/services");
+          const perms = permResponse.data || [];
+          console.log("🔍 User Permissions Response:", perms);
+          perms.forEach((p: any) => {
+            // ✅ FIX: Use 'code' instead of 'service_code'
+            userPermissions[p.code] = {
+              can_read: p.can_read || false,
+            };
+          });
+          console.log("🔍 User Permissions Map:", userPermissions);
+        } catch (error) {
+          console.warn("Could not fetch user permissions");
+        }
+
+        const menuItems: MenuItem[] = [
+          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
+        ];
+
+        // ─── Show only services where user has can_read ─────────────────────
+        serviceMenuMap.forEach((menuItem) => {
+          const hasReadPermission =
+            userPermissions[menuItem.code]?.can_read === true;
+          console.log(`🔍 ${menuItem.code}: can_read = ${hasReadPermission}`);
+          if (hasReadPermission) {
+            menuItems.push({
+              name: menuItem.name,
+              path: menuItem.path,
+              icon: menuItem.icon,
+              submenu: menuItem.submenu?.map((sub) => ({
+                name: sub.name,
+                path: sub.path,
+                icon: sub.icon,
+              })),
+            });
+          }
+        });
+
+        console.log("🔍 Final Menu Items:", menuItems);
+        setDynamicMenuItems(menuItems);
+        setLoading(false);
+        return;
+      }
+
+      // ─── Fallback ──────────────────────────────────────────────────────────
       setDynamicMenuItems([
         { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
       ]);
@@ -557,6 +691,10 @@ export default function Sidebar() {
           from { opacity: 0; transform: translateX(-8px); }
           to { opacity: 1; transform: translateX(0); }
         }
+        @keyframes submenuSlide {
+          from { opacity: 0; transform: translateY(-8px); max-height: 0; }
+          to { opacity: 1; transform: translateY(0); max-height: 500px; }
+        }
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.5; transform: scale(1.2); }
@@ -571,6 +709,9 @@ export default function Sidebar() {
         }
         .sidebar-item-enter {
           animation: slideIn 0.2s ease forwards;
+        }
+        .submenu-enter {
+          animation: submenuSlide 0.25s ease forwards;
         }
         .sidebar-root {
           background: #ffffff;
@@ -668,6 +809,32 @@ export default function Sidebar() {
         .nav-item-active .nav-label {
           color: #dc2626;
           font-weight: 600;
+        }
+        .submenu-item {
+          padding-left: 20px !important;
+          transition: all 0.2s ease;
+        }
+        .submenu-item .nav-label {
+          font-size: 0.8rem;
+          font-weight: 500;
+        }
+        .submenu-item-active {
+          background: rgba(220,38,38,0.08) !important;
+        }
+        .submenu-item-active .nav-label {
+          color: #dc2626 !important;
+          font-weight: 600 !important;
+        }
+        .submenu-dot {
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: #9ca3af;
+          transition: all 0.2s ease;
+        }
+        .submenu-item-active .submenu-dot {
+          background: #dc2626;
+          box-shadow: 0 0 8px rgba(220,38,38,0.3);
         }
         .tooltip {
           position: absolute;
@@ -910,52 +1077,140 @@ export default function Sidebar() {
           {dynamicMenuItems.map((item, i) => {
             const isActive =
               pathname === item.path || pathname.startsWith(item.path + "/");
+            const hasSubmenu = item.submenu && item.submenu.length > 0;
+            const isExpanded = expandedMenus[item.name] || false;
+            const isSubmenuActive =
+              hasSubmenu &&
+              item.submenu?.some(
+                (sub) =>
+                  pathname === sub.path || pathname.startsWith(sub.path + "/"),
+              );
+
             return (
-              <Link
-                key={item.path}
-                href={item.path}
-                onMouseEnter={() => setHoveredItem(item.path)}
-                onMouseLeave={() => setHoveredItem(null)}
-                className={`nav-item flex items-center gap-3 px-3 py-2.5 ${isActive ? "nav-item-active" : ""}`}
-                style={{
-                  animationDelay: `${i * 30}ms`,
-                  textDecoration: "none",
-                }}
-              >
-                <span
-                  className="nav-icon flex-shrink-0"
+              <div key={item.path || item.name}>
+                {/* Parent Menu Item */}
+                <div
+                  className={`nav-item flex items-center gap-3 px-3 py-2.5 ${isActive || isSubmenuActive ? "nav-item-active" : ""}`}
                   style={{
-                    transform:
-                      hoveredItem === item.path
-                        ? "scale(1.1) rotate(-2deg)"
-                        : "scale(1)",
+                    animationDelay: `${i * 30}ms`,
+                    textDecoration: "none",
+                    cursor: hasSubmenu ? "pointer" : "default",
                   }}
+                  onClick={() => {
+                    if (hasSubmenu) {
+                      toggleSubmenu(item.name);
+                    } else {
+                      router.push(item.path);
+                    }
+                  }}
+                  onMouseEnter={() => setHoveredItem(item.path)}
+                  onMouseLeave={() => setHoveredItem(null)}
                 >
-                  {item.icon}
-                </span>
-
-                {!collapsed && (
-                  <span className="nav-label sidebar-item-enter truncate">
-                    {item.name}
+                  <span
+                    className="nav-icon flex-shrink-0"
+                    style={{
+                      transform:
+                        hoveredItem === item.path
+                          ? "scale(1.1) rotate(-2deg)"
+                          : "scale(1)",
+                    }}
+                  >
+                    {item.icon}
                   </span>
-                )}
 
-                {collapsed && <span className="tooltip">{item.name}</span>}
+                  {!collapsed && (
+                    <span className="nav-label sidebar-item-enter truncate flex-1">
+                      {item.name}
+                    </span>
+                  )}
 
-                {isActive && !collapsed && (
-                  <span className="ml-auto flex-shrink-0">
+                  {collapsed && <span className="tooltip">{item.name}</span>}
+
+                  {/* Chevron for submenu */}
+                  {hasSubmenu && !collapsed && (
                     <span
-                      className="block rounded-full online-dot"
+                      className="flex-shrink-0 transition-transform duration-200"
                       style={{
-                        width: 5,
-                        height: 5,
-                        background: "#dc2626",
-                        boxShadow: "0 0 8px rgba(220,38,38,0.3)",
+                        transform: isExpanded
+                          ? "rotate(90deg)"
+                          : "rotate(0deg)",
+                        color: "#9ca3af",
                       }}
-                    />
-                  </span>
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </span>
+                  )}
+
+                  {(isActive || isSubmenuActive) && !collapsed && (
+                    <span className="ml-auto flex-shrink-0">
+                      <span
+                        className="block rounded-full online-dot"
+                        style={{
+                          width: 5,
+                          height: 5,
+                          background: "#dc2626",
+                          boxShadow: "0 0 8px rgba(220,38,38,0.3)",
+                        }}
+                      />
+                    </span>
+                  )}
+                </div>
+
+                {/* Submenu Items */}
+                {hasSubmenu && !collapsed && isExpanded && (
+                  <div className="ml-4 mt-1 space-y-0.5 submenu-enter">
+                    {item.submenu?.map((subItem) => {
+                      const isSubActive =
+                        pathname === subItem.path ||
+                        pathname.startsWith(subItem.path + "/");
+                      return (
+                        <Link
+                          key={subItem.path}
+                          href={subItem.path}
+                          className={`nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm submenu-item ${isSubActive ? "submenu-item-active" : ""}`}
+                          style={{
+                            textDecoration: "none",
+                          }}
+                        >
+                          <span className="submenu-dot flex-shrink-0" />
+                          <span
+                            className="nav-label sidebar-item-enter truncate"
+                            style={{
+                              color: isSubActive ? "#dc2626" : "#6b7280",
+                              fontWeight: isSubActive ? "600" : "500",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {subItem.name}
+                          </span>
+                          {isSubActive && !collapsed && (
+                            <span className="ml-auto flex-shrink-0">
+                              <span
+                                className="block rounded-full online-dot"
+                                style={{
+                                  width: 4,
+                                  height: 4,
+                                  background: "#dc2626",
+                                  boxShadow: "0 0 6px rgba(220,38,38,0.3)",
+                                }}
+                              />
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
                 )}
-              </Link>
+              </div>
             );
           })}
         </nav>

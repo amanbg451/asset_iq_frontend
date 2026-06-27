@@ -110,8 +110,6 @@ export default function ClientDetailsPage() {
     services: [] as string[],
   });
   const [servicesList, setServicesList] = useState<SubscribedService[]>([]);
-
-  // ─── NEW: Edit Subscription State ──────────────────────────────────────────
   const [editSubscriptionFormData, setEditSubscriptionFormData] = useState({
     licence_count: 0,
     max_assets: 0,
@@ -121,6 +119,12 @@ export default function ClientDetailsPage() {
     ends_at: "",
     auto_renew: false,
   });
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   const fetchClient = async () => {
     try {
@@ -187,7 +191,6 @@ export default function ClientDetailsPage() {
     }
   }, [clientId]);
 
-  // ─── Client CRUD ─────────────────────────────────────────────────────────
   const handleUpdateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client) return;
@@ -239,7 +242,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // ─── Subscription CRUD ────────────────────────────────────────────────────
   const handleCreateSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client) return;
@@ -262,7 +264,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // ─── NEW: Handle Edit Subscription ──────────────────────────────────────────
   const handleEditSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subscription) return;
@@ -316,7 +317,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // ─── Client Admin CRUD ────────────────────────────────────────────────────
   const handleCreateClientAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client) return;
@@ -394,7 +394,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // ─── NEW: Open Edit Subscription Modal ──────────────────────────────────────
   const openEditSubscriptionModal = () => {
     if (subscription) {
       setEditSubscriptionFormData({
@@ -427,7 +426,7 @@ export default function ClientDetailsPage() {
     .filter(Boolean)
     .join(", ");
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-red-50/15 to-white">
         <div className="w-12 h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
@@ -442,7 +441,7 @@ export default function ClientDetailsPage() {
           <p className="text-gray-500">Client not found</p>
           <button
             onClick={() => router.push("/clients")}
-            className="mt-4 text-red-600 hover:underline"
+            className="mt-4 text-red-600 hover:underline cursor-pointer"
           >
             Back to Clients
           </button>
@@ -488,22 +487,57 @@ export default function ClientDetailsPage() {
           animation: fadeInUp 0.25s ease;
         }
         .modal-content {
-          background: white;
-          border-radius: 28px;
-          width: 90%;
-          max-width: 640px;
-          max-height: 85vh;
+          background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
+          border-radius: 32px;
+          width: 95%;
+          max-width: 820px;
+          max-height: 90vh;
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
-          box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4);
+          box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
+          padding: 28px 32px 32px;
         }
-        .delete-modal { max-width: 400px; }
+
+        .modal-content::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .modal-content::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 20px;
+          margin: 12px 0;
+          box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.02);
+        }
+        .modal-content::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, #dc2626, #ef4444);
+          border-radius: 20px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+          transition: all 0.2s ease;
+        }
+        .modal-content::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, #b91c1c, #dc2626);
+          border: 1px solid transparent;
+          background-clip: padding-box;
+          transform: scale(1.05);
+        }
+        .modal-content {
+          scrollbar-width: thin;
+          scrollbar-color: #dc2626 #f1f5f9;
+          scroll-behavior: smooth;
+        }
+        .modal-content::-webkit-scrollbar-track:hover {
+          background: #e8edf4;
+        }
+
+        .delete-modal { max-width: 440px; }
         
         .stat-card {
           background: white;
           border-radius: 16px;
           border: 1px solid #f1f5f9;
           transition: all 0.3s ease;
+          cursor: default;
         }
         .stat-card:hover {
           transform: translateY(-2px);
@@ -513,7 +547,7 @@ export default function ClientDetailsPage() {
         .tab-btn {
           padding: 8px 20px;
           border-radius: 30px;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 500;
           transition: all 0.2s ease;
           cursor: pointer;
@@ -542,6 +576,11 @@ export default function ClientDetailsPage() {
           background: white;
           transform: scale(1.01);
         }
+        .input-fancy::placeholder {
+          color: #9ca3af;
+          font-weight: 400;
+          opacity: 0.9;
+        }
         
         .admin-card {
           transition: all 0.2s ease;
@@ -550,6 +589,50 @@ export default function ClientDetailsPage() {
         .admin-card:hover {
           transform: translateY(-2px);
           box-shadow: 0 8px 20px -6px rgba(0,0,0,0.15);
+        }
+
+        .modal-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px 24px;
+        }
+        .modal-grid-2 .full-width {
+          grid-column: 1 / -1;
+        }
+        .input-icon-wrapper {
+          position: relative;
+        }
+        .input-icon-wrapper .icon {
+          position: absolute;
+          left: 14px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #9ca3af;
+          pointer-events: none;
+          font-size: 16px;
+          line-height: 1;
+        }
+        .input-icon-wrapper input,
+        .input-icon-wrapper textarea,
+        .input-icon-wrapper select {
+          padding-left: 42px;
+        }
+        .input-icon-wrapper textarea {
+          padding-top: 12px;
+          padding-bottom: 12px;
+          resize: vertical;
+          min-height: 52px;
+        }
+        .input-icon-wrapper .icon-top {
+          top: 16px;
+          transform: none;
+        }
+        .input-icon-wrapper select {
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 14px center;
+          padding-right: 40px;
         }
       `}</style>
 
@@ -563,7 +646,7 @@ export default function ClientDetailsPage() {
           {/* Back Button */}
           <button
             onClick={() => router.push("/clients")}
-            className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition-colors mb-6 group fade-in-up"
+            className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition-colors mb-6 group fade-in-up cursor-pointer"
           >
             <svg
               width="20"
@@ -612,21 +695,21 @@ export default function ClientDetailsPage() {
               {!client.is_active && (
                 <button
                   onClick={() => setShowRestoreConfirm(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold"
+                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold text-sm cursor-pointer"
                 >
                   Restore Client
                 </button>
               )}
               <button
                 onClick={openEditModal}
-                className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold"
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold text-sm cursor-pointer"
               >
                 Edit
               </button>
               {client.is_active && (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold"
+                  className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold text-sm cursor-pointer"
                 >
                   Deactivate
                 </button>
@@ -854,7 +937,7 @@ export default function ClientDetailsPage() {
                   </p>
                   <button
                     onClick={() => setShowCreateSubscriptionModal(true)}
-                    className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all"
+                    className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all cursor-pointer"
                   >
                     + Create Subscription
                   </button>
@@ -879,7 +962,7 @@ export default function ClientDetailsPage() {
                         <button
                           onClick={handleSuspendSubscription}
                           disabled={submitting}
-                          className="px-4 py-2 bg-yellow-600 text-white rounded-xl hover:bg-yellow-700 font-semibold"
+                          className="px-4 py-2 bg-yellow-600 text-white rounded-xl hover:bg-yellow-700 font-semibold text-sm cursor-pointer"
                         >
                           Suspend
                         </button>
@@ -887,14 +970,14 @@ export default function ClientDetailsPage() {
                         <button
                           onClick={handleReactivateSubscription}
                           disabled={submitting}
-                          className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold"
+                          className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold text-sm cursor-pointer"
                         >
                           Reactivate
                         </button>
                       )}
                       <button
                         onClick={openEditSubscriptionModal}
-                        className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold"
+                        className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold text-sm cursor-pointer"
                       >
                         Edit
                       </button>
@@ -1018,7 +1101,7 @@ export default function ClientDetailsPage() {
                 {!clientAdmin && (
                   <button
                     onClick={() => setShowCreateAdminModal(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all"
+                    className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all cursor-pointer"
                   >
                     + Create Admin
                   </button>
@@ -1048,7 +1131,7 @@ export default function ClientDetailsPage() {
                   </p>
                   <button
                     onClick={() => setShowCreateAdminModal(true)}
-                    className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all"
+                    className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transition-all cursor-pointer"
                   >
                     + Create Client Admin
                   </button>
@@ -1099,7 +1182,7 @@ export default function ClientDetailsPage() {
                                 e.stopPropagation();
                                 openEditAdminModal();
                               }}
-                              className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-200 transition-all flex items-center gap-1"
+                              className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-200 transition-all flex items-center gap-1 cursor-pointer"
                             >
                               <svg
                                 width="14"
@@ -1131,170 +1214,195 @@ export default function ClientDetailsPage() {
         </div>
       </div>
 
-      {/* Edit Client Modal */}
+      {/* ─── ENHANCED: Edit Client Modal ─── */}
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8">
+            <div className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
+
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Edit Client
-                  </h2>
-                  <p className="text-sm text-gray-400">
-                    Update client information
-                  </p>
+                  <h2 className="text-2xl font-bold text-gray-800">Edit Client</h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Update client information</p>
                 </div>
                 <button
                   onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleUpdateClient} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Client Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.name || ""}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, name: e.target.value })
-                    }
-                    required
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Enter client name"
-                  />
+
+              <form onSubmit={handleUpdateClient}>
+                <div className="modal-grid-2">
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Client Name <span className="text-red-500">*</span>
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏢</span>
+                      <input
+                        type="text"
+                        value={editFormData.name || ""}
+                        onChange={(e) =>
+                          setEditFormData({ ...editFormData, name: e.target.value })
+                        }
+                        required
+                        autoComplete="off"
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="ABC Corporation"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Industry
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏭</span>
+                      <input
+                        type="text"
+                        value={editFormData.industry || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            industry: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Technology, Logistics, Healthcare"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Contact Email
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">✉️</span>
+                      <input
+                        type="email"
+                        value={editFormData.contact_email || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            contact_email: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="admin@company.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Contact Phone
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📞</span>
+                      <input
+                        type="tel"
+                        value={editFormData.contact_phone || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            contact_phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="+91 1234567890"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Address Line 1
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📍</span>
+                      <input
+                        type="text"
+                        value={editFormData.address_line_1 || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            address_line_1: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Building/Flat number, Street"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Address Line 2
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏠</span>
+                      <input
+                        type="text"
+                        value={editFormData.address_line_2 || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            address_line_2: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Area, Locality"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Address Line 3
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🗺️</span>
+                      <input
+                        type="text"
+                        value={editFormData.address_line_3 || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            address_line_3: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="City, State, PIN Code"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Industry
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.industry || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        industry: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="e.g., Technology, Logistics, Healthcare"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Contact Email
-                  </label>
-                  <input
-                    type="email"
-                    value={editFormData.contact_email || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        contact_email: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="admin@company.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Contact Phone
-                  </label>
-                  <input
-                    type="tel"
-                    value={editFormData.contact_phone || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        contact_phone: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="+91 1234567890"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Address Line 1
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.address_line_1 || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        address_line_1: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Building/Flat number, Street"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Address Line 2
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.address_line_2 || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        address_line_2: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Area, Locality"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Address Line 3
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.address_line_3 || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        address_line_3: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="City, State, PIN Code"
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                   >
                     {submitting ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Updating...
+                      </>
                     ) : (
                       "Update Client"
                     )}
@@ -1306,105 +1414,113 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Edit Client Admin Modal */}
+      {/* ─── ENHANCED: Edit Client Admin Modal ─── */}
       {showEditAdminModal && clientAdmin && (
         <div
           className="modal-overlay"
           onClick={() => setShowEditAdminModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8">
+            <div className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
+
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Edit Client Admin
-                  </h2>
-                  <p className="text-sm text-gray-400">
-                    Update administrator information
-                  </p>
+                  <h2 className="text-2xl font-bold text-gray-800">Edit Client Admin</h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Update administrator information</p>
                 </div>
                 <button
                   onClick={() => setShowEditAdminModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleUpdateClientAdmin} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Full Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editAdminFormData.full_name || ""}
-                    onChange={(e) =>
-                      setEditAdminFormData({
-                        ...editAdminFormData,
-                        full_name: e.target.value,
-                      })
-                    }
-                    required
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Enter full name"
-                  />
+
+              <form onSubmit={handleUpdateClientAdmin}>
+                <div className="modal-grid-2">
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">👤</span>
+                      <input
+                        type="text"
+                        value={editAdminFormData.full_name || ""}
+                        onChange={(e) =>
+                          setEditAdminFormData({
+                            ...editAdminFormData,
+                            full_name: e.target.value,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Enter full name"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Email
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">✉️</span>
+                      <input
+                        type="email"
+                        value={clientAdmin.email}
+                        disabled
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl bg-gray-100 text-gray-500 cursor-not-allowed"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                      Email cannot be changed
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Phone
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📞</span>
+                      <input
+                        type="tel"
+                        value={editAdminFormData.phone || ""}
+                        onChange={(e) =>
+                          setEditAdminFormData({
+                            ...editAdminFormData,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="+91 9876543210"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={clientAdmin.email}
-                    disabled
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-100 text-gray-500 cursor-not-allowed"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    Email cannot be changed
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Phone
-                  </label>
-                  <input
-                    type="tel"
-                    value={editAdminFormData.phone || ""}
-                    onChange={(e) =>
-                      setEditAdminFormData({
-                        ...editAdminFormData,
-                        phone: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="+91 9876543210"
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setShowEditAdminModal(false)}
-                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                   >
                     {submitting ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Updating...
+                      </>
                     ) : (
                       "Update Admin"
                     )}
@@ -1416,226 +1532,242 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Create Subscription Modal */}
+      {/* ─── ENHANCED: Create Subscription Modal ─── */}
       {showCreateSubscriptionModal && (
         <div
           className="modal-overlay"
           onClick={() => setShowCreateSubscriptionModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8">
+            <div className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div>
+
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Create Subscription
-                  </h2>
-                  <p className="text-sm text-gray-400">
-                    Assign licences and services
-                  </p>
+                  <h2 className="text-2xl font-bold text-gray-800">Create Subscription</h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Assign licences and services</p>
                 </div>
                 <button
                   onClick={() => setShowCreateSubscriptionModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleCreateSubscription} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+
+              <form onSubmit={handleCreateSubscription}>
+                <div className="modal-grid-2">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Licence Count
                     </label>
-                    <input
-                      type="number"
-                      value={subscriptionFormData.licence_count || ""}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          licence_count:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="e.g., 100"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🪪</span>
+                      <input
+                        type="number"
+                        value={subscriptionFormData.licence_count || ""}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            licence_count:
+                              e.target.value === ""
+                                ? 0
+                                : parseInt(e.target.value),
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="100"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Max Assets
                     </label>
-                    <input
-                      type="number"
-                      value={subscriptionFormData.max_assets || ""}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          max_assets:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="e.g., 500"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📦</span>
+                      <input
+                        type="number"
+                        value={subscriptionFormData.max_assets || ""}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            max_assets:
+                              e.target.value === ""
+                                ? 0
+                                : parseInt(e.target.value),
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="500"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Max Departments
                     </label>
-                    <input
-                      type="number"
-                      value={subscriptionFormData.max_departments || ""}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          max_departments:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="e.g., 20"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏛️</span>
+                      <input
+                        type="number"
+                        value={subscriptionFormData.max_departments || ""}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            max_departments:
+                              e.target.value === ""
+                                ? 0
+                                : parseInt(e.target.value),
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="20"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Price (₹)
                     </label>
-                    <input
-                      type="number"
-                      value={subscriptionFormData.price || ""}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          price:
-                            e.target.value === ""
-                              ? 0
-                              : parseInt(e.target.value),
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="e.g., 50000"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">💰</span>
+                      <input
+                        type="number"
+                        value={subscriptionFormData.price || ""}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            price:
+                              e.target.value === ""
+                                ? 0
+                                : parseInt(e.target.value),
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="50000"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Start Date
                     </label>
-                    <input
-                      type="date"
-                      value={subscriptionFormData.starts_at}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          starts_at: e.target.value,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📅</span>
+                      <input
+                        type="date"
+                        value={subscriptionFormData.starts_at}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            starts_at: e.target.value,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 text-sm font-normal"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       End Date
                     </label>
-                    <input
-                      type="date"
-                      value={subscriptionFormData.ends_at}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          ends_at: e.target.value,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📅</span>
+                      <input
+                        type="date"
+                        value={subscriptionFormData.ends_at}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            ends_at: e.target.value,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 text-sm font-normal"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="full-width">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={subscriptionFormData.auto_renew}
+                        onChange={(e) =>
+                          setSubscriptionFormData({
+                            ...subscriptionFormData,
+                            auto_renew: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                      />
+                      <span className="text-sm text-gray-700 font-medium">Auto Renew</span>
+                    </label>
+                  </div>
+
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Services to Include
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-3 border border-gray-200 rounded-xl">
+                      {servicesList
+                        .filter((service) => service.is_active !== false)
+                        .map((service) => (
+                          <label
+                            key={service.id}
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={subscriptionFormData.services.includes(
+                                service.id,
+                              )}
+                              onChange={() => handleServiceToggle(service.id)}
+                              className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                            />
+                            <span className="text-sm text-gray-700">
+                              {service.name}
+                            </span>
+                          </label>
+                        ))}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                      Only active services are shown
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={subscriptionFormData.auto_renew}
-                      onChange={(e) =>
-                        setSubscriptionFormData({
-                          ...subscriptionFormData,
-                          auto_renew: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                    />
-                    <span className="text-sm text-gray-700">Auto Renew</span>
-                  </label>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Services to Include
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-3 border border-gray-200 rounded-xl">
-                    {servicesList
-                      .filter((service) => service.is_active !== false)
-                      .map((service) => (
-                        <label
-                          key={service.id}
-                          className="flex items-center gap-2 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={subscriptionFormData.services.includes(
-                              service.id,
-                            )}
-                            onChange={() => handleServiceToggle(service.id)}
-                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                          />
-                          <span className="text-sm text-gray-700">
-                            {service.name}
-                          </span>
-                        </label>
-                      ))}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Only active services are shown
-                  </p>
-                </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setShowCreateSubscriptionModal(false)}
-                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                   >
                     {submitting ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating...
+                      </>
                     ) : (
                       "Create Subscription"
                     )}
@@ -1647,186 +1779,199 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* ─── UPDATED: Edit Subscription Modal ─── */}
+      {/* ─── ENHANCED: Edit Subscription Modal ─── */}
       {showEditSubscriptionModal && subscription && (
         <div
           className="modal-overlay"
           onClick={() => setShowEditSubscriptionModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8">
+            <div className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
+
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Edit Subscription
-                  </h2>
-                  <p className="text-sm text-gray-400">
-                    Update subscription details
-                  </p>
+                  <h2 className="text-2xl font-bold text-gray-800">Edit Subscription</h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Update subscription details</p>
                 </div>
                 <button
                   onClick={() => setShowEditSubscriptionModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
 
-              {/* ─── NEW: Use handleEditSubscription ─── */}
-              <form onSubmit={handleEditSubscription} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+              <form onSubmit={handleEditSubscription}>
+                <div className="modal-grid-2">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Licence Count
                     </label>
-                    <input
-                      type="number"
-                      value={editSubscriptionFormData.licence_count}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          licence_count: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="Enter licence count"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🪪</span>
+                      <input
+                        type="number"
+                        value={editSubscriptionFormData.licence_count}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            licence_count: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Enter licence count"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Max Assets
                     </label>
-                    <input
-                      type="number"
-                      value={editSubscriptionFormData.max_assets}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          max_assets: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="Enter max assets"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📦</span>
+                      <input
+                        type="number"
+                        value={editSubscriptionFormData.max_assets}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            max_assets: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Enter max assets"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Max Departments
                     </label>
-                    <input
-                      type="number"
-                      value={editSubscriptionFormData.max_departments}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          max_departments: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="Enter max departments"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🏛️</span>
+                      <input
+                        type="number"
+                        value={editSubscriptionFormData.max_departments}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            max_departments: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Enter max departments"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Price (₹)
                     </label>
-                    <input
-                      type="number"
-                      value={editSubscriptionFormData.price}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          price: parseInt(e.target.value) || 0,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                      placeholder="Enter price"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">💰</span>
+                      <input
+                        type="number"
+                        value={editSubscriptionFormData.price}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            price: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="Enter price"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Start Date
                     </label>
-                    <input
-                      type="date"
-                      value={editSubscriptionFormData.starts_at}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          starts_at: e.target.value,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📅</span>
+                      <input
+                        type="date"
+                        value={editSubscriptionFormData.starts_at}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            starts_at: e.target.value,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 text-sm font-normal"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       End Date
                     </label>
-                    <input
-                      type="date"
-                      value={editSubscriptionFormData.ends_at}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          ends_at: e.target.value,
-                        })
-                      }
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    />
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📅</span>
+                      <input
+                        type="date"
+                        value={editSubscriptionFormData.ends_at}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            ends_at: e.target.value,
+                          })
+                        }
+                        required
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 text-sm font-normal"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="full-width">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editSubscriptionFormData.auto_renew}
+                        onChange={(e) =>
+                          setEditSubscriptionFormData({
+                            ...editSubscriptionFormData,
+                            auto_renew: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                      />
+                      <span className="text-sm text-gray-700 font-medium">Auto Renew</span>
+                    </label>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editSubscriptionFormData.auto_renew}
-                      onChange={(e) =>
-                        setEditSubscriptionFormData({
-                          ...editSubscriptionFormData,
-                          auto_renew: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                    />
-                    <span className="text-sm text-gray-700">Auto Renew</span>
-                  </label>
-                </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setShowEditSubscriptionModal(false)}
-                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                   >
                     {submitting ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Updating...
+                      </>
                     ) : (
                       "Update Subscription"
                     )}
@@ -1838,134 +1983,149 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Create Client Admin Modal */}
+      {/* ─── ENHANCED: Create Client Admin Modal ─── */}
       {showCreateAdminModal && (
         <div
           className="modal-overlay"
           onClick={() => setShowCreateAdminModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="p-8">
+            <div className="relative">
+              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div>
+
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
-                    Create Client Admin
-                  </h2>
-                  <p className="text-sm text-gray-400">
-                    Assign an administrator for this client
-                  </p>
+                  <h2 className="text-2xl font-bold text-gray-800">Create Client Admin</h2>
+                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Assign an administrator for this client</p>
                 </div>
                 <button
                   onClick={() => setShowCreateAdminModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              <form onSubmit={handleCreateClientAdmin} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Full Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="full_name"
-                    value={createAdminForm.full_name}
-                    onChange={(e) =>
-                      setCreateAdminForm({
-                        ...createAdminForm,
-                        full_name: e.target.value,
-                      })
-                    }
-                    required
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Enter full name"
-                  />
+
+              <form onSubmit={handleCreateClientAdmin}>
+                <div className="modal-grid-2">
+                  <div className="full-width">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">👤</span>
+                      <input
+                        type="text"
+                        name="full_name"
+                        value={createAdminForm.full_name}
+                        onChange={(e) =>
+                          setCreateAdminForm({
+                            ...createAdminForm,
+                            full_name: e.target.value,
+                          })
+                        }
+                        required
+                        autoComplete="off"
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="John Doe"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Email <span className="text-red-500">*</span>
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">✉️</span>
+                      <input
+                        type="email"
+                        name="email"
+                        value={createAdminForm.email}
+                        onChange={(e) =>
+                          setCreateAdminForm({
+                            ...createAdminForm,
+                            email: e.target.value,
+                          })
+                        }
+                        required
+                        autoComplete="new-email"
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="admin@company.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Password <span className="text-red-500">*</span>
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">🔒</span>
+                      <input
+                        type="password"
+                        name="password"
+                        value={createAdminForm.password}
+                        onChange={(e) =>
+                          setCreateAdminForm({
+                            ...createAdminForm,
+                            password: e.target.value,
+                          })
+                        }
+                        required
+                        autoComplete="new-password"
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                      Min 8 characters with uppercase, lowercase, and number
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Phone
+                    </label>
+                    <div className="input-icon-wrapper">
+                      <span className="icon">📞</span>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={createAdminForm.phone}
+                        onChange={(e) =>
+                          setCreateAdminForm({
+                            ...createAdminForm,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        placeholder="+91 9876543210"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={createAdminForm.email}
-                    onChange={(e) =>
-                      setCreateAdminForm({
-                        ...createAdminForm,
-                        email: e.target.value,
-                      })
-                    }
-                    required
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="admin@company.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Password <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    name="password"
-                    value={createAdminForm.password}
-                    onChange={(e) =>
-                      setCreateAdminForm({
-                        ...createAdminForm,
-                        password: e.target.value,
-                      })
-                    }
-                    required
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="Enter password"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    Min 8 characters with uppercase, lowercase, and number
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Phone
-                  </label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={createAdminForm.phone}
-                    onChange={(e) =>
-                      setCreateAdminForm({
-                        ...createAdminForm,
-                        phone: e.target.value,
-                      })
-                    }
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy text-gray-800 placeholder-black"
-                    placeholder="+91 9876543210"
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => setShowCreateAdminModal(false)}
-                    className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                   >
                     {submitting ? (
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating...
+                      </>
                     ) : (
                       "Create Admin"
                     )}
@@ -1977,7 +2137,7 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* ─── ENHANCED: Delete Confirmation Modal ─── */}
       {showDeleteConfirm && (
         <div
           className="modal-overlay"
@@ -1987,7 +2147,7 @@ export default function ClientDetailsPage() {
             className="modal-content delete-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 text-center">
+            <div className="text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
                 <svg
                   width="28"
@@ -2005,24 +2165,27 @@ export default function ClientDetailsPage() {
               <h3 className="text-xl font-bold text-gray-800 mb-2">
                 Deactivate Client?
               </h3>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-500 text-sm mb-2 font-normal">
                 Are you sure you want to deactivate{" "}
                 <span className="font-semibold text-gray-700">
                   {client.name}
                 </span>
                 ?
               </p>
+              <p className="text-xs text-gray-400 mb-4 font-normal">
+                This action can be reversed later.
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteClient}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -2036,7 +2199,7 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* Restore Confirmation Modal */}
+      {/* ─── ENHANCED: Restore Confirmation Modal ─── */}
       {showRestoreConfirm && (
         <div
           className="modal-overlay"
@@ -2046,7 +2209,7 @@ export default function ClientDetailsPage() {
             className="modal-content delete-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 text-center">
+            <div className="text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
                 <svg
                   width="28"
@@ -2064,7 +2227,7 @@ export default function ClientDetailsPage() {
               <h3 className="text-xl font-bold text-gray-800 mb-2">
                 Restore Client?
               </h3>
-              <p className="text-gray-500 text-sm mb-4">
+              <p className="text-gray-500 text-sm mb-2 font-normal">
                 Are you sure you want to restore{" "}
                 <span className="font-semibold text-gray-700">
                   {client.name}
@@ -2074,14 +2237,14 @@ export default function ClientDetailsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowRestoreConfirm(false)}
-                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRestoreClient}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

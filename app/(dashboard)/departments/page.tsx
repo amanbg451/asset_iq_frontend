@@ -261,34 +261,40 @@ export default function DepartmentsPage() {
   };
 
   // ─── Check department limit before creation ──────────────────────────────
-  const checkDepartmentLimit = async (): Promise<boolean> => {
-    try {
-      const clientId = getClientIdFromToken();
-      if (!clientId) {
-        if (formData.client_id) {
-          const [subRes, deptRes] = await Promise.all([
-            api.get(`/clients/${formData.client_id}/subscriptions`),
-            api.get("/departments"),
-          ]);
+const checkDepartmentLimit = async (): Promise<boolean> => {
+  const role = getUserRoleFromToken();
+  
+  // Client Admin: Skip check (backend will enforce limits)
+  if (role === "CLIENT_ADMIN") {
+    return true;
+  }
 
-          const subscription = subRes.data;
-          const maxDepartments = subscription?.max_departments || 0;
-          const activeDepartments = deptRes.data.filter(
-            (d: Department) =>
-              d.is_active && d.client_id === formData.client_id,
-          ).length;
+  // Platform Admin: Check subscription limits
+  try {
+    const clientId = getClientIdFromToken();
+    
+    if (!clientId && formData.client_id) {
+      const [subRes, deptRes] = await Promise.all([
+        api.get(`/clients/${formData.client_id}/subscriptions`),
+        api.get("/departments"),
+      ]);
 
-          if (activeDepartments >= maxDepartments && maxDepartments > 0) {
-            toast.error(
-              `Maximum ${maxDepartments} departments allowed. Please upgrade subscription.`,
-            );
-            return false;
-          }
-          return true;
-        }
-        return true;
+      const subscription = subRes.data;
+      const maxDepartments = subscription?.max_departments || 0;
+      const activeDepartments = deptRes.data.filter(
+        (d: Department) => d.is_active && d.client_id === formData.client_id,
+      ).length;
+
+      if (activeDepartments >= maxDepartments && maxDepartments > 0) {
+        toast.error(
+          `Maximum ${maxDepartments} departments allowed. Please upgrade subscription.`,
+        );
+        return false;
       }
+      return true;
+    }
 
+    if (clientId) {
       const [subRes, deptRes] = await Promise.all([
         api.get(`/clients/${clientId}/subscriptions`),
         api.get("/departments"),
@@ -313,11 +319,13 @@ export default function DepartmentsPage() {
       }
 
       return true;
-    } catch (error) {
-      console.error("Error checking department limit:", error);
-      return true;
     }
-  };
+  } catch (error) {
+    console.error("Error checking department limit:", error);
+  }
+  
+  return true;
+};
 
   // ─── Handle client selection for deactivated view ────────────────────────
   const handleClientSelectForDeactivated = (clientId: string) => {
