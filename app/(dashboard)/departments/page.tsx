@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
+import { z } from "zod";
 import api from "@/app/lib/api";
 
 interface Department {
@@ -13,6 +14,7 @@ interface Department {
   code: string;
   description: string;
   manager_id: string | null;
+  manager_name?: string;
   is_active: boolean;
 }
 
@@ -29,7 +31,55 @@ interface Client {
 
 type ViewMode = "table" | "grid";
 
-// ─── Helper: Export to CSV ──────────────────────────────────────────────────
+const departmentSchema = z.object({
+  name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  code: z
+    .string()
+    .min(2, "Code must be at least 2 characters")
+    .max(20, "Code must be at most 20 characters")
+    .regex(
+      /^[A-Z0-9_]+$/,
+      "Code must contain only uppercase letters, numbers, and underscores",
+    ),
+  description: z
+    .string()
+    .max(500, "Description must be at most 500 characters")
+    .optional()
+    .default(""),
+  client_id: z.string().optional(),
+});
+
+const assignManagerSchema = z.object({
+  manager_id: z.string().min(1, "Please select a manager"),
+});
+
+const getClientIdFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.client_id || "";
+  } catch {
+    return "";
+  }
+};
+
+const getUserRoleFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+};
+
 const exportToCSV = (data: Department[], filename: string) => {
   const headers = [
     "Name",
@@ -44,13 +94,15 @@ const exportToCSV = (data: Department[], filename: string) => {
     d.code,
     d.client_id || "",
     d.description || "",
-    d.manager_id || "",
+    d.manager_name || d.manager_id || "",
     d.is_active ? "Active" : "Deactivated",
   ]);
 
   let csv = headers.join(",") + "\n";
   rows.forEach((row) => {
-    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+    csv +=
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",") +
+      "\n";
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -62,7 +114,6 @@ const exportToCSV = (data: Department[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Export to Excel ────────────────────────────────────────────────
 const exportToExcel = (data: Department[], filename: string) => {
   const headers = [
     "Name",
@@ -77,14 +128,16 @@ const exportToExcel = (data: Department[], filename: string) => {
     d.code,
     d.client_id || "",
     d.description || "",
-    d.manager_id || "",
+    d.manager_name || d.manager_id || "",
     d.is_active ? "Active" : "Deactivated",
   ]);
 
   let csv = "\uFEFF";
   csv += headers.join(",") + "\n";
   rows.forEach((row) => {
-    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+    csv +=
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",") +
+      "\n";
   });
 
   const blob = new Blob([csv], { type: "application/vnd.ms-excel" });
@@ -94,32 +147,6 @@ const exportToExcel = (data: Department[], filename: string) => {
   a.download = `${filename}.xls`;
   a.click();
   URL.revokeObjectURL(url);
-};
-
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
-const getClientIdFromToken = () => {
-  if (typeof window === "undefined") return "";
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.client_id || "";
-  } catch {
-    return "";
-  }
-};
-
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
-const getUserRoleFromToken = () => {
-  if (typeof window === "undefined") return "";
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.role || "";
-  } catch {
-    return "";
-  }
 };
 
 export default function DepartmentsPage() {
@@ -147,34 +174,38 @@ export default function DepartmentsPage() {
     left: number;
   } | null>(null);
   const [mounted, setMounted] = useState(false);
-
-  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const [selectedClientForDeactivated, setSelectedClientForDeactivated] =
+    useState("");
   const [formData, setFormData] = useState({
     name: "",
     code: "",
     description: "",
     client_id: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
   const [editFormData, setEditFormData] = useState({
     name: "",
     code: "",
     description: "",
   });
-  const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
-  const [selectedClientForDeactivated, setSelectedClientForDeactivated] =
-    useState<string>("");
+  const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [managerErrors, setManagerErrors] = useState<Record<string, string>>(
+    {},
+  );
+
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
 
   const userRole = getUserRoleFromToken();
   const isPlatformAdmin = userRole === "ADMIN";
 
-  // ─── Set mounted state ─────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // ─── Position dropdown when it opens ──────────────────────────────────────
   useEffect(() => {
     if (showExportDropdown && exportButtonRef.current) {
       const rect = exportButtonRef.current.getBoundingClientRect();
@@ -187,7 +218,6 @@ export default function DepartmentsPage() {
     }
   }, [showExportDropdown]);
 
-  // ─── Fetch Departments with Deactivated Support ──────────────────────────
   const fetchDepartments = useCallback(async () => {
     try {
       setLoading(true);
@@ -207,7 +237,33 @@ export default function DepartmentsPage() {
       }
 
       const response = await api.get(url);
-      setDepartments(response.data);
+      const depts = response.data;
+
+      // Fetch managers for the departments if they have manager_id
+      if (depts.length > 0) {
+        const managerIds = depts
+          .filter((d: Department) => d.manager_id)
+          .map((d: Department) => d.manager_id);
+        if (managerIds.length > 0) {
+          try {
+            const managersRes = await api.get("/users/managers");
+            const allManagers = managersRes.data;
+            const managerMap: Record<string, string> = {};
+            allManagers.forEach((m: Manager) => {
+              managerMap[m.id] = m.full_name;
+            });
+            depts.forEach((d: Department) => {
+              if (d.manager_id && managerMap[d.manager_id]) {
+                d.manager_name = managerMap[d.manager_id];
+              }
+            });
+          } catch (e) {
+            // Managers not accessible, skip
+          }
+        }
+      }
+
+      setDepartments(depts);
     } catch (error: any) {
       console.error("Error fetching departments:", error);
       toast.error(
@@ -218,17 +274,12 @@ export default function DepartmentsPage() {
     }
   }, [showDeactivated, formData.client_id]);
 
-  // ─── Fetch managers ─────────────────────────────────────────────────────────
   const fetchManagers = async () => {
     try {
       const clientId = getClientIdFromToken();
       const role = getUserRoleFromToken();
 
-      // For Client Admin, use the regular /users/managers endpoint
-      // The client-specific endpoint (/users/clients/{clientId}/managers) is for Platform Admin only
       let url = "/users/managers";
-
-      // Only use client-specific endpoint if NOT Client Admin
       if (clientId && role !== "CLIENT_ADMIN") {
         url = `/users/clients/${clientId}/managers`;
       }
@@ -236,9 +287,7 @@ export default function DepartmentsPage() {
       const response = await api.get(url);
       setManagers(response.data);
     } catch (error: any) {
-      // If we get 403, it's expected - Client Admin doesn't have permission
       if (error.response?.status === 403) {
-        console.warn("Managers endpoint not accessible - skipping");
         setManagers([]);
         return;
       }
@@ -246,7 +295,6 @@ export default function DepartmentsPage() {
     }
   };
 
-  // ─── Fetch clients for dropdown ──────────────────────────────────────────
   const fetchClients = async () => {
     try {
       setFetchingClients(true);
@@ -260,77 +308,62 @@ export default function DepartmentsPage() {
     }
   };
 
-  // ─── Check department limit before creation ──────────────────────────────
-const checkDepartmentLimit = async (): Promise<boolean> => {
-  const role = getUserRoleFromToken();
-  
-  // Client Admin: Skip check (backend will enforce limits)
-  if (role === "CLIENT_ADMIN") {
+  const checkDepartmentLimit = async (): Promise<boolean> => {
+    const role = getUserRoleFromToken();
+    if (role === "CLIENT_ADMIN") return true;
+
+    try {
+      const clientId = getClientIdFromToken();
+      if (!clientId && formData.client_id) {
+        const [subRes, deptRes] = await Promise.all([
+          api.get(`/clients/${formData.client_id}/subscriptions`),
+          api.get("/departments"),
+        ]);
+
+        const subscription = subRes.data;
+        const maxDepartments = subscription?.max_departments || 0;
+        const activeDepartments = deptRes.data.filter(
+          (d: Department) => d.is_active && d.client_id === formData.client_id,
+        ).length;
+
+        if (activeDepartments >= maxDepartments && maxDepartments > 0) {
+          toast.error(
+            `Maximum ${maxDepartments} departments allowed. Please upgrade subscription.`,
+          );
+          return false;
+        }
+        return true;
+      }
+
+      if (clientId) {
+        const [subRes, deptRes] = await Promise.all([
+          api.get(`/clients/${clientId}/subscriptions`),
+          api.get("/departments"),
+        ]);
+
+        const subscription = subRes.data;
+        const maxDepartments = subscription?.max_departments || 0;
+        const activeDepartments = deptRes.data.filter(
+          (d: Department) => d.is_active,
+        ).length;
+
+        if (activeDepartments >= maxDepartments && maxDepartments > 0) {
+          toast.error(
+            `Maximum ${maxDepartments} departments allowed. Please upgrade your subscription.`,
+          );
+          return false;
+        }
+
+        const remaining = maxDepartments - activeDepartments;
+        if (remaining <= 5 && remaining > 0) {
+          toast(`Only ${remaining} department slots remaining`, { icon: "⚠️" });
+        }
+        return true;
+      }
+    } catch (error) {
+      console.error("Error checking department limit:", error);
+    }
     return true;
-  }
-
-  // Platform Admin: Check subscription limits
-  try {
-    const clientId = getClientIdFromToken();
-    
-    if (!clientId && formData.client_id) {
-      const [subRes, deptRes] = await Promise.all([
-        api.get(`/clients/${formData.client_id}/subscriptions`),
-        api.get("/departments"),
-      ]);
-
-      const subscription = subRes.data;
-      const maxDepartments = subscription?.max_departments || 0;
-      const activeDepartments = deptRes.data.filter(
-        (d: Department) => d.is_active && d.client_id === formData.client_id,
-      ).length;
-
-      if (activeDepartments >= maxDepartments && maxDepartments > 0) {
-        toast.error(
-          `Maximum ${maxDepartments} departments allowed. Please upgrade subscription.`,
-        );
-        return false;
-      }
-      return true;
-    }
-
-    if (clientId) {
-      const [subRes, deptRes] = await Promise.all([
-        api.get(`/clients/${clientId}/subscriptions`),
-        api.get("/departments"),
-      ]);
-
-      const subscription = subRes.data;
-      const maxDepartments = subscription?.max_departments || 0;
-      const activeDepartments = deptRes.data.filter(
-        (d: Department) => d.is_active,
-      ).length;
-
-      if (activeDepartments >= maxDepartments && maxDepartments > 0) {
-        toast.error(
-          `Maximum ${maxDepartments} departments allowed. Please upgrade your subscription.`,
-        );
-        return false;
-      }
-
-      const remaining = maxDepartments - activeDepartments;
-      if (remaining <= 5 && remaining > 0) {
-        toast(`Only ${remaining} department slots remaining`, { icon: "⚠️" });
-      }
-
-      return true;
-    }
-  } catch (error) {
-    console.error("Error checking department limit:", error);
-  }
-  
-  return true;
-};
-
-  // ─── Handle client selection for deactivated view ────────────────────────
-  const handleClientSelectForDeactivated = (clientId: string) => {
-    setSelectedClientForDeactivated(clientId);
-    setFormData((prev) => ({ ...prev, client_id: clientId }));
   };
 
   useEffect(() => {
@@ -355,9 +388,20 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
     }
   }, [showDeactivated, isPlatformAdmin]);
 
-  // ─── Create Department ────────────────────────────────────────────────────
   const handleCreateDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const result = departmentSchema.safeParse(formData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setFormErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
 
     const withinLimit = await checkDepartmentLimit();
     if (!withinLimit) return;
@@ -366,9 +410,9 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
     try {
       let endpoint = "/departments";
       const payload: any = {
-        name: formData.name,
-        code: formData.code,
-        description: formData.description,
+        name: result.data.name,
+        code: result.data.code,
+        description: result.data.description || "",
       };
 
       const clientId = getClientIdFromToken();
@@ -388,6 +432,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
       toast.success("Department created successfully");
       setShowModal(false);
       setFormData({ name: "", code: "", description: "", client_id: "" });
+      setFormErrors({});
       fetchDepartments();
     } catch (error: any) {
       console.error("Error creating department:", error);
@@ -402,11 +447,25 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
   const handleUpdateDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDepartment) return;
+
+    const result = departmentSchema.safeParse(editFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setEditErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await api.patch(`/departments/${selectedDepartment.id}`, editFormData);
+      await api.patch(`/departments/${selectedDepartment.id}`, result.data);
       toast.success("Department updated successfully");
       setShowEditModal(false);
+      setEditErrors({});
       fetchDepartments();
     } catch (error: any) {
       console.error("Error updating department:", error);
@@ -421,6 +480,21 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
   const handleAssignManager = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDepartment) return;
+
+    const result = assignManagerSchema.safeParse({
+      manager_id: selectedManagerId,
+    });
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setManagerErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
+
     setSubmitting(true);
     try {
       await api.patch(`/departments/${selectedDepartment.id}/assign-manager`, {
@@ -428,6 +502,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
       });
       toast.success("Manager assigned successfully");
       setShowManagerModal(false);
+      setManagerErrors({});
       fetchDepartments();
     } catch (error: any) {
       console.error("Error assigning manager:", error);
@@ -496,16 +571,22 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
       code: dept.code,
       description: dept.description || "",
     });
+    setEditErrors({});
     setShowEditModal(true);
   };
 
   const openManagerModal = (dept: Department) => {
     setSelectedDepartment(dept);
     setSelectedManagerId(dept.manager_id || "");
+    setManagerErrors({});
     setShowManagerModal(true);
   };
 
-  // ─── Export Handlers ──────────────────────────────────────────────────────
+  const handleClientSelectForDeactivated = (clientId: string) => {
+    setSelectedClientForDeactivated(clientId);
+    setFormData((prev) => ({ ...prev, client_id: clientId }));
+  };
+
   const handleExportCSV = () => {
     exportToCSV(
       departments,
@@ -526,15 +607,13 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
 
   const filteredDepartments = departments.filter(
     (dept) =>
-      (showDeactivated ? !dept.is_active : dept.is_active) &&
-      (dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        dept.code.toLowerCase().includes(searchTerm.toLowerCase())),
+      dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      dept.code.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   const activeCount = departments.filter((d) => d.is_active).length;
   const deactivatedCount = departments.filter((d) => !d.is_active).length;
 
-  // ─── View Mode Labels ──────────────────────────────────────────────────────
   const viewModeLabels: Record<ViewMode, string> = {
     table: "📋 Table",
     grid: "📊 Grid",
@@ -565,7 +644,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
         }
-        /* Enhanced modal: bigger, two-column layout */
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
           border-radius: 32px;
@@ -578,44 +656,11 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           padding: 28px 32px 32px;
         }
 
-        /* ─── Beautiful Rounded Scrollbar ──────────────────────────────────── */
-        .modal-content::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-
-        .modal-content::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 20px;
-          margin: 12px 0;
-          box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.02);
-        }
-
-        .modal-content::-webkit-scrollbar-thumb {
-          background: linear-gradient(180deg, #dc2626, #ef4444);
-          border-radius: 20px;
-          border: 2px solid transparent;
-          background-clip: padding-box;
-          transition: all 0.2s ease;
-        }
-
-        .modal-content::-webkit-scrollbar-thumb:hover {
-          background: linear-gradient(180deg, #b91c1c, #dc2626);
-          border: 1px solid transparent;
-          background-clip: padding-box;
-          transform: scale(1.05);
-        }
-
-        /* Firefox scrollbar support */
-        .modal-content {
-          scrollbar-width: thin;
-          scrollbar-color: #dc2626 #f1f5f9;
-          scroll-behavior: smooth;
-        }
-
-        .modal-content::-webkit-scrollbar-track:hover {
-          background: #e8edf4;
-        }
+        .modal-content::-webkit-scrollbar { width: 6px; }
+        .modal-content::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 20px; margin: 12px 0; }
+        .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #dc2626, #ef4444); border-radius: 20px; border: 2px solid transparent; background-clip: padding-box; }
+        .modal-content::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #b91c1c, #dc2626); }
+        .modal-content { scrollbar-width: thin; scrollbar-color: #dc2626 #f1f5f9; scroll-behavior: smooth; }
         
         .delete-modal { max-width: 440px; }
         
@@ -679,7 +724,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           transform: translateX(26px);
         }
         
-        /* Softer placeholder color */
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -694,7 +738,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           opacity: 0.9;
         }
 
-        /* ─── Table Styles ──────────────────────────────────────────────────── */
         .dept-table {
           width: 100%;
           border-collapse: collapse;
@@ -730,7 +773,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           background: #fecaca;
         }
 
-        /* ─── View Toggle Buttons ──────────────────────────────────────────── */
         .view-toggle-btn {
           padding: 6px 14px;
           border-radius: 8px;
@@ -753,7 +795,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           box-shadow: 0 2px 8px rgba(220,38,38,0.25);
         }
 
-        /* Two-column grid for modal fields */
         .modal-grid-2 {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -762,7 +803,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
         .modal-grid-2 .full-width {
           grid-column: 1 / -1;
         }
-        /* Icon inside input */
         .input-icon-wrapper {
           position: relative;
         }
@@ -799,7 +839,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
           transform: none;
         }
       `}</style>
-
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-20 left-10 w-72 h-72 bg-red-100/30 rounded-full blur-3xl animate-pulse"></div>
@@ -834,7 +873,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
               </p>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
-              {/* ─── View Toggle ─── */}
               <div className="flex bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 p-1 shadow-sm">
                 {(["table", "grid"] as ViewMode[]).map((mode) => (
                   <button
@@ -847,12 +885,11 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
                 ))}
               </div>
 
-              {/* ─── Export Dropdown ─── */}
               <div className="relative">
                 <button
                   ref={exportButtonRef}
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className=" cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
+                  className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
                 >
                   <svg
                     width="16"
@@ -909,7 +946,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
                   )}
               </div>
 
-              {/* ─── Add Department Button ─── */}
               <button
                 onClick={() => setShowModal(true)}
                 className="cursor-pointer group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden"
@@ -931,7 +967,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Stats */}
           {!loading && departments.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 fade-in-up">
               <div className="stat-card p-4 flex items-center gap-4">
@@ -1002,7 +1038,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
             </div>
           )}
 
-          {/* Search and Toggle */}
+          {/* Search */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 fade-in-up">
             <div className="relative max-w-md w-full">
               <svg
@@ -1046,7 +1082,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
             </div>
           </div>
 
-          {/* ─── Client Selector for Deactivated View ─── */}
+          {/* Client Selector for Deactivated View */}
           {isPlatformAdmin && showDeactivated && (
             <div className="mb-6 p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 shadow-sm">
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -1091,27 +1127,18 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
             </div>
           )}
 
-          {/* Loading State */}
+          {/* Loading */}
           {loading && (
             <div className="flex justify-center items-center py-20">
               <div className="w-12 h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
             </div>
           )}
 
-          {/* ─── Content Based on View Mode ─── */}
+          {/* Content */}
           {!loading && (
             <>
-              {/* ─── GRID VIEW ─── */}
               {viewMode === "grid" && (
                 <>
-                  {!isPlatformAdmin &&
-                    showDeactivated &&
-                    departments.length === 0 && (
-                      <div className="text-center py-8 text-gray-500 text-sm font-normal">
-                        No deactivated departments found for your client.
-                      </div>
-                    )}
-
                   {isPlatformAdmin &&
                     showDeactivated &&
                     !selectedClientForDeactivated && (
@@ -1119,70 +1146,84 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
                         Please select a client to view deactivated departments.
                       </div>
                     )}
-
+                  {(!isPlatformAdmin &&
+                    showDeactivated &&
+                    departments.length === 0) ||
+                  (isPlatformAdmin &&
+                    showDeactivated &&
+                    selectedClientForDeactivated &&
+                    departments.length === 0) ? (
+                    <div className="text-center py-8 text-gray-500 text-sm font-normal">
+                      No deactivated departments found.
+                    </div>
+                  ) : null}
                   {!(
-                    (isPlatformAdmin &&
-                      showDeactivated &&
-                      !selectedClientForDeactivated) ||
-                    (!isPlatformAdmin &&
-                      showDeactivated &&
-                      departments.length === 0)
-                  ) && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {filteredDepartments.map((dept, idx) => (
-                        <div
-                          key={dept.id}
-                          className="bg-white rounded-xl border border-gray-100 shadow-sm dept-card fade-in-up"
-                          style={{ animationDelay: `${idx * 70}ms` }}
-                          onClick={() => router.push(`/departments/${dept.id}`)}
-                        >
-                          <div className="p-5">
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
-                                <svg
-                                  width="18"
-                                  height="18"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="#dc2626"
-                                  strokeWidth="1.8"
+                    isPlatformAdmin &&
+                    showDeactivated &&
+                    !selectedClientForDeactivated
+                  ) &&
+                    departments.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredDepartments.map((dept, idx) => (
+                          <div
+                            key={dept.id}
+                            className="bg-white rounded-xl border border-gray-100 shadow-sm dept-card fade-in-up"
+                            style={{ animationDelay: `${idx * 70}ms` }}
+                            onClick={() =>
+                              router.push(`/departments/${dept.id}`)
+                            }
+                          >
+                            <div className="p-5">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
+                                  <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="#dc2626"
+                                    strokeWidth="1.8"
+                                  >
+                                    <path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2z" />
+                                    <line x1="8" y1="12" x2="16" y2="12" />
+                                    <line x1="8" y1="8" x2="16" y2="8" />
+                                  </svg>
+                                </div>
+                                <span
+                                  className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dept.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
                                 >
-                                  <path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2z" />
-                                  <line x1="8" y1="12" x2="16" y2="12" />
-                                  <line x1="8" y1="8" x2="16" y2="8" />
-                                </svg>
+                                  {dept.is_active ? "Active" : "Inactive"}
+                                </span>
                               </div>
-                              <span
-                                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dept.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
-                              >
-                                {dept.is_active ? "Active" : "Inactive"}
-                              </span>
-                            </div>
-                            <h3 className="font-bold text-gray-900 text-lg mb-1">
-                              {dept.name}
-                            </h3>
-                            <p className="text-xs text-gray-400 font-mono mb-2">
-                              {dept.code}
-                            </p>
-                            {dept.description && (
-                              <p className="text-sm text-gray-500 line-clamp-2 font-normal">
-                                {dept.description}
+                              <h3 className="font-bold text-gray-900 text-lg mb-1">
+                                {dept.name}
+                              </h3>
+                              <p className="text-xs text-gray-400 font-mono mb-2">
+                                {dept.code}
                               </p>
-                            )}
-                            <div className="mt-3 text-right">
-                              <span className="text-xs text-gray-400 group-hover:text-red-500 transition-colors font-normal">
-                                Click to view details →
-                              </span>
+                              {dept.description && (
+                                <p className="text-sm text-gray-500 line-clamp-2 font-normal">
+                                  {dept.description}
+                                </p>
+                              )}
+                              {dept.manager_name && (
+                                <p className="text-xs text-gray-400 mt-2">
+                                  👤 {dept.manager_name}
+                                </p>
+                              )}
+                              <div className="mt-3 text-right">
+                                <span className="text-xs text-gray-400 group-hover:text-red-500 transition-colors font-normal">
+                                  Click to view details →
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    )}
                 </>
               )}
 
-              {/* ─── TABLE VIEW ─── */}
               {viewMode === "table" && (
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
                   <div className="overflow-x-auto">
@@ -1191,7 +1232,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
                         <tr>
                           <th>Name</th>
                           <th>Code</th>
-                          <th>Client ID</th>
+                          <th>Client</th>
                           <th>Description</th>
                           <th>Manager</th>
                           <th>Status</th>
@@ -1230,7 +1271,7 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
                                 {dept.description || "—"}
                               </td>
                               <td className="text-gray-600">
-                                {dept.manager_id || "—"}
+                                {dept.manager_name || dept.manager_id || "—"}
                               </td>
                               <td>
                                 <span
@@ -1257,12 +1298,6 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
               isPlatformAdmin &&
               showDeactivated &&
               !selectedClientForDeactivated
-            ) &&
-            !(isPlatformAdmin && showDeactivated && departments.length === 0) &&
-            !(
-              !isPlatformAdmin &&
-              showDeactivated &&
-              departments.length === 0
             ) && (
               <div className="text-center py-20 fade-in-up">
                 <div className="w-20 h-20 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-4">
@@ -1297,321 +1332,623 @@ const checkDepartmentLimit = async (): Promise<boolean> => {
             )}
         </div>
       </div>
-
-      {/* ─── ENHANCED: Create Department Modal ─── */}
+      // Modal for Creating Department
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              {/* Subtle accent line */}
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Create Department
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Enter department details below
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-              <div className="flex justify-between items-start mb-6">
+            <form onSubmit={handleCreateDepartment}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Department Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏢</span>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value });
+                        if (formErrors.name)
+                          setFormErrors({ ...formErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        formErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Information Technology"
+                    />
+                  </div>
+                  {formErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.name}
+                    </p>
+                  )}
+                </div>
+
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Create Department
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Enter department details below
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Department Code <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔢</span>
+                    <input
+                      type="text"
+                      name="code"
+                      value={formData.code}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          code: e.target.value.toUpperCase(),
+                        });
+                        if (formErrors.code)
+                          setFormErrors({ ...formErrors, code: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        formErrors.code
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="IT001"
+                    />
+                  </div>
+                  {formErrors.code && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.code}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                    Uppercase letters, numbers, and underscores only
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
 
-              <form onSubmit={handleCreateDepartment}>
-                <div className="modal-grid-2">
-                  {/* Department Name - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏢</span>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, name: e.target.value })
-                        }
-                        required
-                        autoComplete="off"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Information Technology"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Department Code */}
+                {isPlatformAdmin && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department Code <span className="text-red-500">*</span>
+                      Client <span className="text-red-500">*</span>
                     </label>
                     <div className="input-icon-wrapper">
-                      <span className="icon">🔢</span>
-                      <input
-                        type="text"
-                        name="code"
-                        value={formData.code}
-                        onChange={(e) =>
-                          setFormData({ ...formData, code: e.target.value })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="IT001"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Client Dropdown - Platform Admin only */}
-                  {isPlatformAdmin && (
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Client <span className="text-red-500">*</span>
-                      </label>
-                      <div className="input-icon-wrapper">
-                        <span className="icon">🏛️</span>
-                        <select
-                          name="client_id"
-                          value={formData.client_id}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              client_id: e.target.value,
-                            })
-                          }
-                          required
-                          className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                        >
-                          <option value="">Select a client</option>
-                          {fetchingClients ? (
-                            <option value="" disabled>
-                              Loading clients...
-                            </option>
-                          ) : (
-                            clients.map((client) => (
-                              <option key={client.id} value={client.id}>
-                                {client.name}
-                              </option>
-                            ))
-                          )}
-                        </select>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
-                        Select the client for this department
-                      </p>
-                    </div>
-                  )}
-
-                  {!isPlatformAdmin && (
-                    <div className="full-width">
-                      <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
-                        <p className="text-sm text-gray-500 font-normal">
-                          Department will be created under your client.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        name="description"
-                        value={formData.description}
-                        onChange={(e) =>
+                      <span className="icon">🏛️</span>
+                      <select
+                        name="client_id"
+                        value={formData.client_id}
+                        onChange={(e) => {
                           setFormData({
                             ...formData,
-                            description: e.target.value,
-                          })
-                        }
-                        rows={3}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Brief description of the department"
-                      />
+                            client_id: e.target.value,
+                          });
+                          if (formErrors.client_id)
+                            setFormErrors({ ...formErrors, client_id: "" });
+                        }}
+                        required
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                          formErrors.client_id
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
+                      >
+                        <option value="">Select a client</option>
+                        {fetchingClients ? (
+                          <option value="" disabled>
+                            Loading clients...
+                          </option>
+                        ) : (
+                          clients.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                    {formErrors.client_id && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.client_id}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                      Select the client for this department
+                    </p>
+                  </div>
+                )}
+
+                {!isPlatformAdmin && (
+                  <div className="full-width">
+                    <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
+                      <p className="text-sm text-gray-500 font-normal">
+                        Department will be created under your client.
+                      </p>
                     </div>
                   </div>
+                )}
+
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      name="description"
+                      value={formData.description}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          description: e.target.value,
+                        });
+                        if (formErrors.description)
+                          setFormErrors({ ...formErrors, description: "" });
+                      }}
+                      rows={3}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        formErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Brief description of the department"
+                    />
+                  </div>
+                  {formErrors.description && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Department"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      // Edit Department Modal
+      {showEditModal && selectedDepartment && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Edit Department
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Update department information
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateDepartment}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Department Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏢</span>
+                    <input
+                      type="text"
+                      value={editFormData.name}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          name: e.target.value,
+                        });
+                        if (editErrors.name)
+                          setEditErrors({ ...editErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Enter department name"
+                    />
+                  </div>
+                  {editErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.name}
+                    </p>
+                  )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Department Code <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔢</span>
+                    <input
+                      type="text"
+                      value={editFormData.code}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          code: e.target.value.toUpperCase(),
+                        });
+                        if (editErrors.code)
+                          setEditErrors({ ...editErrors, code: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.code
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Enter department code"
+                    />
+                  </div>
+                  {editErrors.code && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.code}
+                    </p>
+                  )}
+                </div>
+
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={editFormData.description}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          description: e.target.value,
+                        });
+                        if (editErrors.description)
+                          setEditErrors({ ...editErrors, description: "" });
+                      }}
+                      rows={3}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Department description"
+                    />
+                  </div>
+                  {editErrors.description && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Department"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      // Assign Manager Modal
+      {showManagerModal && selectedDepartment && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowManagerModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Assign Manager
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Select a manager for {selectedDepartment.name}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowManagerModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignManager}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Select Manager <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <select
+                      value={selectedManagerId}
+                      onChange={(e) => {
+                        setSelectedManagerId(e.target.value);
+                        if (managerErrors.manager_id)
+                          setManagerErrors({
+                            ...managerErrors,
+                            manager_id: "",
+                          });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                        managerErrors.manager_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select a manager</option>
+                      {managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.full_name} ({manager.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {managerErrors.manager_id && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {managerErrors.manager_id}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {selectedDepartment.manager_id && (
+                <div className="mt-4 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
+                  <p className="text-sm text-yellow-700">
+                    Current manager will be replaced. To remove without
+                    replacing, click the Remove Manager button below.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-6 mt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowManagerModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                {selectedDepartment.manager_id && (
                   <button
                     type="button"
-                    onClick={() => setShowModal(false)}
-                    className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
+                    onClick={handleRemoveManager}
                     disabled={submitting}
-                    className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                    className="px-4 py-2.5 bg-red-100 text-red-700 rounded-xl hover:bg-red-200 transition-all duration-200 font-semibold text-sm"
                   >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Creating...
-                      </>
-                    ) : (
-                      "Create Department"
-                    )}
+                    {submitting ? "Removing..." : "Remove Manager"}
                   </button>
-                </div>
-              </form>
+                )}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Assigning...
+                    </>
+                  ) : (
+                    "Assign Manager"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      // Delete Confirmation Modal
+      {showDeleteConfirm && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#dc2626"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">
+                Deactivate Department?
+              </h3>
+              <p className="text-gray-500 text-sm mb-2 font-normal">
+                Are you sure you want to deactivate{" "}
+                <span className="font-semibold text-gray-700">
+                  {selectedDepartment?.name}
+                </span>
+                ?
+              </p>
+              <p className="text-xs text-gray-400 mb-4 font-normal">
+                This action can be reversed later.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteDepartment}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    "Yes, Deactivate"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* ─── ENHANCED: Edit Department Modal ─── */}
-      {showEditModal && selectedDepartment && (
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
-
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Edit Department
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Update department information
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+      // Restore Confirmation Modal
+      {showRestoreConfirm && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowRestoreConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#16a34a"
+                  strokeWidth="2"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  <path d="M20 12v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8" />
+                  <polyline points="16 6 12 2 8 6" />
+                  <line x1="12" y1="2" x2="12" y2="15" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">
+                Restore Department?
+              </h3>
+              <p className="text-gray-500 text-sm mb-2 font-normal">
+                Are you sure you want to restore{" "}
+                <span className="font-semibold text-gray-700">
+                  {selectedDepartment?.name}
+                </span>
+                ?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowRestoreConfirm(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRestoreDepartment}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    "Yes, Restore"
+                  )}
                 </button>
               </div>
-
-              <form onSubmit={handleUpdateDepartment}>
-                <div className="modal-grid-2">
-                  {/* Department Name - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏢</span>
-                      <input
-                        type="text"
-                        value={editFormData.name}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            name: e.target.value,
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Enter department name"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Department Code */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department Code <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔢</span>
-                      <input
-                        type="text"
-                        value={editFormData.code}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            code: e.target.value,
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Enter department code"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={editFormData.description}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            description: e.target.value,
-                          })
-                        }
-                        rows={3}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Department description"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Updating...
-                      </>
-                    ) : (
-                      "Update Department"
-                    )}
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
+import { z } from "zod";
 import api from "@/app/lib/api";
 
 interface Category {
@@ -32,6 +33,13 @@ interface User {
   is_active: boolean;
 }
 
+interface Location {
+  id: string;
+  name: string;
+  location_type: string;
+  full_path: string;
+}
+
 interface Asset {
   id: string;
   client_id: string;
@@ -39,6 +47,7 @@ interface Asset {
   type_id: string;
   department_id: string | null;
   assigned_to_user_id: string | null;
+  location_id: string | null;
   name: string;
   description: string | null;
   serial_number: string | null;
@@ -55,18 +64,57 @@ interface Asset {
   qr_code_url: string | null;
 }
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
-const getUserRoleFromToken = () => {
-  if (typeof window === "undefined") return "";
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.role || "";
-  } catch {
-    return "";
-  }
-};
+// Zod schemas for form validation
+
+const assetSchema = z.object({
+  category_id: z.string().min(1, "Please select a category"),
+  type_id: z.string().min(1, "Please select a type"),
+  name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(200, "Name must be at most 200 characters"),
+  description: z
+    .string()
+    .max(500, "Description must be at most 500 characters")
+    .optional()
+    .default(""),
+  serial_number: z
+    .string()
+    .max(100, "Serial number must be at most 100 characters")
+    .optional()
+    .default(""),
+  model: z
+    .string()
+    .max(100, "Model must be at most 100 characters")
+    .optional()
+    .default(""),
+  manufacturer: z
+    .string()
+    .max(100, "Manufacturer must be at most 100 characters")
+    .optional()
+    .default(""),
+  department_id: z.string().optional().default(""),
+  assigned_to_user_id: z.string().optional().default(""),
+  location_id: z.string().optional().default(""),
+  purchase_date: z.string().optional().default(""),
+  purchase_value: z
+    .number()
+    .min(0, "Value must be at least 0")
+    .optional()
+    .default(0),
+  status: z.enum([
+    "AVAILABLE",
+    "ASSIGNED",
+    "MAINTENANCE",
+    "TRANSIT",
+    "DECOMMISSIONED",
+  ]),
+  image_url: z.string().url("Invalid URL").optional().default(""),
+});
+
+const assignSchema = z.object({
+  user_id: z.string().min(1, "Please select a user"),
+});
 
 export default function AssetsPage() {
   const router = useRouter();
@@ -76,9 +124,11 @@ export default function AssetsPage() {
   const [filteredTypes, setFilteredTypes] = useState<AssetType[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -93,12 +143,12 @@ export default function AssetsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
-  // ─── Form State ────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
     category_id: "",
     type_id: "",
     department_id: "",
     assigned_to_user_id: "",
+    location_id: "",
     name: "",
     description: "",
     serial_number: "",
@@ -109,11 +159,14 @@ export default function AssetsPage() {
     status: "AVAILABLE",
     image_url: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
   const [editFormData, setEditFormData] = useState({
     category_id: "",
     type_id: "",
     department_id: "",
     assigned_to_user_id: "",
+    location_id: "",
     name: "",
     description: "",
     serial_number: "",
@@ -124,19 +177,18 @@ export default function AssetsPage() {
     status: "AVAILABLE",
     image_url: "",
   });
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
-  // ─── Assign Form State ────────────────────────────────────────────────────
   const [assignFormData, setAssignFormData] = useState({
     user_id: "",
   });
+  const [assignErrors, setAssignErrors] = useState<Record<string, string>>({});
 
-  // ─── Set mounted state ────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // ─── Fetch Categories ─────────────────────────────────────────────────────
   const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get("/asset-categories");
@@ -149,7 +201,6 @@ export default function AssetsPage() {
     }
   }, []);
 
-  // ─── Fetch Types ──────────────────────────────────────────────────────────
   const fetchTypes = useCallback(async () => {
     try {
       const response = await api.get("/asset-types");
@@ -162,7 +213,6 @@ export default function AssetsPage() {
     }
   }, []);
 
-  // ─── Fetch Departments ────────────────────────────────────────────────────
   const fetchDepartments = useCallback(async () => {
     try {
       const response = await api.get("/departments");
@@ -171,7 +221,6 @@ export default function AssetsPage() {
       );
       setDepartments(activeDepts);
     } catch (error: any) {
-      // If 403, just set empty array - user doesn't have permission
       if (error.response?.status === 403) {
         console.warn("Departments fetch skipped - insufficient permissions");
         setDepartments([]);
@@ -181,7 +230,6 @@ export default function AssetsPage() {
     }
   }, []);
 
-  // ─── Fetch Users ──────────────────────────────────────────────────────────
   const fetchUsers = useCallback(async () => {
     try {
       const response = await api.get("/users");
@@ -190,7 +238,6 @@ export default function AssetsPage() {
       );
       setUsers(activeUsers);
     } catch (error: any) {
-      // If 403, just set empty array - user doesn't have permission
       if (error.response?.status === 403) {
         console.warn("Users fetch skipped - insufficient permissions");
         setUsers([]);
@@ -200,7 +247,15 @@ export default function AssetsPage() {
     }
   }, []);
 
-  // ─── Fetch Assets ──────────────────────────────────────────────────────────
+  const fetchLocations = useCallback(async () => {
+    try {
+      const response = await api.get("/location/cards");
+      setLocations(response.data || []);
+    } catch (error: any) {
+      console.error("Error fetching locations:", error);
+    }
+  }, []);
+
   const fetchAssets = useCallback(async () => {
     try {
       setLoading(true);
@@ -214,9 +269,8 @@ export default function AssetsPage() {
     }
   }, []);
 
-  // ─── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!mounted) return;
 
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -229,17 +283,20 @@ export default function AssetsPage() {
       fetchDepartments(),
       fetchUsers(),
       fetchAssets(),
+      fetchLocations(),
     ]);
   }, [
+    mounted,
     router,
     fetchCategories,
     fetchTypes,
     fetchDepartments,
     fetchUsers,
     fetchAssets,
+    fetchLocations,
   ]);
 
-  // ─── Filter types when category changes ──────────────────────────────────
+  // Filter types based on selected category in both create and edit forms
   useEffect(() => {
     if (formData.category_id) {
       const filtered = types.filter(
@@ -273,24 +330,20 @@ export default function AssetsPage() {
     }
   }, [editFormData.category_id, types]);
 
-  // ─── Image Upload Handler ──────────────────────────────────────────────────
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith("image/")) {
       toast.error("Please select an image file");
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image size must be less than 5MB");
       return;
     }
 
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result as string);
@@ -329,19 +382,16 @@ export default function AssetsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith("image/")) {
       toast.error("Please select an image file");
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image size must be less than 5MB");
       return;
     }
 
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setEditImagePreview(reader.result as string);
@@ -374,20 +424,20 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Image URL handler with preview (fallback) ──────────────────────────
   const handleImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value;
     setFormData({ ...formData, image_url: url });
     setImagePreview(url);
+    if (formErrors.image_url) setFormErrors({ ...formErrors, image_url: "" });
   };
 
   const handleEditImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value;
     setEditFormData({ ...editFormData, image_url: url });
     setEditImagePreview(url);
+    if (editErrors.image_url) setEditErrors({ ...editErrors, image_url: "" });
   };
 
-  // ─── Remove Image ──────────────────────────────────────────────────────────
   const removeImage = () => {
     setFormData({ ...formData, image_url: "" });
     setImagePreview("");
@@ -404,46 +454,63 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Create Asset ──────────────────────────────────────────────────────────
+  const getLocationName = (locationId: string | null) => {
+    if (!locationId) return "—";
+    const loc = locations.find((l) => l.id === locationId);
+    return loc ? loc.full_path : "Unknown";
+  };
+
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.category_id) {
-      toast.error("Please select a category");
-      return;
-    }
-    if (!formData.type_id) {
-      toast.error("Please select a type");
-      return;
-    }
-    if (!formData.name.trim()) {
-      toast.error("Asset name is required");
+    // Convert purchase_value to number
+    const dataToValidate = {
+      ...formData,
+      purchase_value: formData.purchase_value
+        ? parseFloat(formData.purchase_value)
+        : 0,
+    };
+
+    const result = assetSchema.safeParse(dataToValidate);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setFormErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
     setSubmitting(true);
     try {
       const payload: any = {
-        category_id: formData.category_id,
-        type_id: formData.type_id,
-        name: formData.name.trim(),
-        status: formData.status,
+        category_id: result.data.category_id,
+        type_id: result.data.type_id,
+        name: result.data.name.trim(),
+        status: result.data.status,
       };
 
-      if (formData.department_id)
-        payload.department_id = formData.department_id;
-      if (formData.assigned_to_user_id)
-        payload.assigned_to_user_id = formData.assigned_to_user_id;
-      if (formData.description) payload.description = formData.description;
-      if (formData.serial_number)
-        payload.serial_number = formData.serial_number;
-      if (formData.model) payload.model = formData.model;
-      if (formData.manufacturer) payload.manufacturer = formData.manufacturer;
-      if (formData.purchase_date)
-        payload.purchase_date = formData.purchase_date;
-      if (formData.purchase_value)
-        payload.purchase_value = parseFloat(formData.purchase_value);
-      if (formData.image_url) payload.created_image_url = formData.image_url;
+      if (result.data.department_id)
+        payload.department_id = result.data.department_id;
+      if (result.data.assigned_to_user_id)
+        payload.assigned_to_user_id = result.data.assigned_to_user_id;
+      if (result.data.location_id)
+        payload.location_id = result.data.location_id;
+      if (result.data.description)
+        payload.description = result.data.description;
+      if (result.data.serial_number)
+        payload.serial_number = result.data.serial_number;
+      if (result.data.model) payload.model = result.data.model;
+      if (result.data.manufacturer)
+        payload.manufacturer = result.data.manufacturer;
+      if (result.data.purchase_date)
+        payload.purchase_date = result.data.purchase_date;
+      if (result.data.purchase_value)
+        payload.purchase_value = result.data.purchase_value;
+      if (result.data.image_url)
+        payload.created_image_url = result.data.image_url;
 
       await api.post("/assets", payload);
       toast.success("Asset created successfully");
@@ -453,6 +520,7 @@ export default function AssetsPage() {
         type_id: "",
         department_id: "",
         assigned_to_user_id: "",
+        location_id: "",
         name: "",
         description: "",
         serial_number: "",
@@ -463,6 +531,7 @@ export default function AssetsPage() {
         status: "AVAILABLE",
         image_url: "",
       });
+      setFormErrors({});
       setImagePreview("");
       fetchAssets();
     } catch (error: any) {
@@ -473,55 +542,64 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Update Asset ──────────────────────────────────────────────────────────
   const handleUpdateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedAsset) return;
-    if (!editFormData.category_id) {
-      toast.error("Please select a category");
-      return;
-    }
-    if (!editFormData.type_id) {
-      toast.error("Please select a type");
-      return;
-    }
-    if (!editFormData.name.trim()) {
-      toast.error("Asset name is required");
+
+    const dataToValidate = {
+      ...editFormData,
+      purchase_value: editFormData.purchase_value
+        ? parseFloat(editFormData.purchase_value)
+        : 0,
+    };
+
+    const result = assetSchema.safeParse(dataToValidate);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setEditErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
     setSubmitting(true);
     try {
       const payload: any = {
-        category_id: editFormData.category_id,
-        type_id: editFormData.type_id,
-        name: editFormData.name.trim(),
-        status: editFormData.status,
+        category_id: result.data.category_id,
+        type_id: result.data.type_id,
+        name: result.data.name.trim(),
+        status: result.data.status,
       };
 
-      if (editFormData.department_id)
-        payload.department_id = editFormData.department_id;
-      if (editFormData.assigned_to_user_id)
-        payload.assigned_to_user_id = editFormData.assigned_to_user_id;
-      if (editFormData.description)
-        payload.description = editFormData.description;
-      if (editFormData.serial_number)
-        payload.serial_number = editFormData.serial_number;
-      if (editFormData.model) payload.model = editFormData.model;
-      if (editFormData.manufacturer)
-        payload.manufacturer = editFormData.manufacturer;
-      if (editFormData.purchase_date)
-        payload.purchase_date = editFormData.purchase_date;
-      if (editFormData.purchase_value)
-        payload.purchase_value = parseFloat(editFormData.purchase_value);
-      if (editFormData.image_url)
-        payload.created_image_url = editFormData.image_url;
+      if (result.data.department_id)
+        payload.department_id = result.data.department_id;
+      if (result.data.assigned_to_user_id)
+        payload.assigned_to_user_id = result.data.assigned_to_user_id;
+      if (result.data.location_id)
+        payload.location_id = result.data.location_id;
+      if (result.data.description)
+        payload.description = result.data.description;
+      if (result.data.serial_number)
+        payload.serial_number = result.data.serial_number;
+      if (result.data.model) payload.model = result.data.model;
+      if (result.data.manufacturer)
+        payload.manufacturer = result.data.manufacturer;
+      if (result.data.purchase_date)
+        payload.purchase_date = result.data.purchase_date;
+      if (result.data.purchase_value)
+        payload.purchase_value = result.data.purchase_value;
+      if (result.data.image_url)
+        payload.created_image_url = result.data.image_url;
 
       await api.patch(`/assets/${selectedAsset.id}`, payload);
       toast.success("Asset updated successfully");
       setShowEditModal(false);
       setSelectedAsset(null);
+      setEditErrors({});
       setEditImagePreview("");
       fetchAssets();
     } catch (error: any) {
@@ -532,7 +610,6 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Delete Asset ──────────────────────────────────────────────────────────
   const handleDeleteAsset = async () => {
     if (!selectedAsset) return;
 
@@ -551,24 +628,32 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Assign Asset ──────────────────────────────────────────────────────────
   const handleAssignAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedAsset) return;
-    if (!assignFormData.user_id) {
-      toast.error("Please select a user");
+
+    const result = assignSchema.safeParse(assignFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setAssignErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
     setSubmitting(true);
     try {
       await api.post(`/assets/${selectedAsset.id}/assign`, {
-        user_id: assignFormData.user_id,
+        user_id: result.data.user_id,
       });
       toast.success("Asset assigned successfully");
       setShowAssignModal(false);
       setAssignFormData({ user_id: "" });
+      setAssignErrors({});
       setSelectedAsset(null);
       fetchAssets();
     } catch (error: any) {
@@ -579,7 +664,6 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Unassign Asset ──────────────────────────────────────────────────────
   const handleUnassignAsset = async (asset: Asset) => {
     setSubmitting(true);
     try {
@@ -594,7 +678,6 @@ export default function AssetsPage() {
     }
   };
 
-  // ─── Open Edit Modal ──────────────────────────────────────────────────────
   const openEditModal = (asset: Asset) => {
     setSelectedAsset(asset);
     setEditFormData({
@@ -602,6 +685,7 @@ export default function AssetsPage() {
       type_id: asset.type_id,
       department_id: asset.department_id || "",
       assigned_to_user_id: asset.assigned_to_user_id || "",
+      location_id: asset.location_id || "",
       name: asset.name,
       description: asset.description || "",
       serial_number: asset.serial_number || "",
@@ -612,50 +696,45 @@ export default function AssetsPage() {
       status: asset.status || "AVAILABLE",
       image_url: asset.created_image_url || "",
     });
+    setEditErrors({});
     setEditImagePreview(asset.created_image_url || "");
     setShowEditModal(true);
   };
 
-  // ─── Open Assign Modal ──────────────────────────────────────────────────
   const openAssignModal = (asset: Asset) => {
     setSelectedAsset(asset);
     setAssignFormData({ user_id: "" });
+    setAssignErrors({});
     setShowAssignModal(true);
   };
 
-  // ─── Open Delete Confirm ──────────────────────────────────────────────────
   const openDeleteConfirm = (asset: Asset) => {
     setSelectedAsset(asset);
     setShowDeleteConfirm(true);
   };
 
-  // ─── Get Category Name ────────────────────────────────────────────────────
   const getCategoryName = (categoryId: string) => {
     const category = categories.find((c) => c.id === categoryId);
     return category ? category.name : "Unknown";
   };
 
-  // ─── Get Type Name ────────────────────────────────────────────────────────
   const getTypeName = (typeId: string) => {
     const type = types.find((t) => t.id === typeId);
     return type ? type.name : "Unknown";
   };
 
-  // ─── Get Department Name ──────────────────────────────────────────────────
   const getDepartmentName = (departmentId: string | null) => {
     if (!departmentId) return "—";
     const dept = departments.find((d) => d.id === departmentId);
     return dept ? dept.name : "Unknown";
   };
 
-  // ─── Get User Name ────────────────────────────────────────────────────────
   const getUserName = (userId: string | null) => {
     if (!userId) return "—";
     const user = users.find((u) => u.id === userId);
     return user ? user.full_name : "Unknown";
   };
 
-  // ─── Get Status Badge Color ──────────────────────────────────────────────
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       AVAILABLE: "bg-green-100 text-green-700",
@@ -667,10 +746,11 @@ export default function AssetsPage() {
     return colors[status] || "bg-gray-100 text-gray-700";
   };
 
-  // ─── Filter Assets ─────────────────────────────────────────────────────────
   const filteredAssets = assets.filter(
     (asset) =>
-      asset.is_active !== false &&
+      (showDeactivated
+        ? asset.is_active === false
+        : asset.is_active !== false) &&
       (statusFilter === "" || asset.status === statusFilter) &&
       (asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (asset.serial_number &&
@@ -684,6 +764,15 @@ export default function AssetsPage() {
           .toLowerCase()
           .includes(searchTerm.toLowerCase())),
   );
+
+  const activeCount = assets.filter((a) => a.is_active !== false).length;
+  const deactivatedCount = assets.filter((a) => a.is_active === false).length;
+  const availableCount = assets.filter(
+    (a) => a.is_active !== false && a.status === "AVAILABLE",
+  ).length;
+  const assignedCount = assets.filter(
+    (a) => a.is_active !== false && a.status === "ASSIGNED",
+  ).length;
 
   if (!mounted) {
     return (
@@ -717,6 +806,7 @@ export default function AssetsPage() {
           justify-content: center;
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
+          padding: 16px;
         }
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
@@ -727,7 +817,13 @@ export default function AssetsPage() {
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
           box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
-          padding: 28px 32px 32px;
+          padding: 24px 20px 28px;
+        }
+
+        @media (min-width: 640px) {
+          .modal-content {
+            padding: 28px 32px 32px;
+          }
         }
 
         .modal-content::-webkit-scrollbar {
@@ -747,19 +843,10 @@ export default function AssetsPage() {
           background-clip: padding-box;
           transition: all 0.2s ease;
         }
-        .modal-content::-webkit-scrollbar-thumb:hover {
-          background: linear-gradient(180deg, #b91c1c, #dc2626);
-          border: 1px solid transparent;
-          background-clip: padding-box;
-          transform: scale(1.05);
-        }
         .modal-content {
           scrollbar-width: thin;
           scrollbar-color: #dc2626 #f1f5f9;
           scroll-behavior: smooth;
-        }
-        .modal-content::-webkit-scrollbar-track:hover {
-          background: #e8edf4;
         }
 
         .delete-modal { max-width: 440px; }
@@ -789,29 +876,79 @@ export default function AssetsPage() {
           opacity: 0.9;
         }
 
+        /* Table with horizontal scroll - ONLY the table scrolls */
+        .table-wrapper {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scroll-behavior: smooth;
+        }
+        
+        .table-wrapper::-webkit-scrollbar {
+          height: 8px;
+        }
+        .table-wrapper::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 20px;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb {
+          background: linear-gradient(90deg, #dc2626, #ef4444);
+          border-radius: 20px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(90deg, #b91c1c, #dc2626);
+        }
+
         .asset-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 400;
+          min-width: 1000px;
+        }
+        @media (min-width: 1280px) {
+          .asset-table {
+            min-width: auto;
+          }
         }
         .asset-table thead th {
           text-align: left;
-          padding: 12px 16px;
+          padding: 10px 12px;
           font-weight: 600;
-          font-size: 13px;
+          font-size: 11px;
           color: #6b7280;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           border-bottom: 2px solid #f1f5f9;
           background: #fafbfc;
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+        @media (min-width: 640px) {
+          .asset-table thead th {
+            padding: 12px 16px;
+            font-size: 12px;
+          }
+        }
+        @media (min-width: 1024px) {
+          .asset-table thead th {
+            font-size: 13px;
+          }
         }
         .asset-table tbody td {
-          padding: 12px 16px;
+          padding: 10px 12px;
           border-bottom: 1px solid #f1f5f9;
           color: #1f2937;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 400;
+          vertical-align: middle;
+        }
+        @media (min-width: 640px) {
+          .asset-table tbody td {
+            padding: 12px 16px;
+            font-size: 14px;
+          }
         }
         .asset-table tbody tr {
           cursor: default;
@@ -821,14 +958,50 @@ export default function AssetsPage() {
           background: #fef2f2;
         }
 
+        /* Column widths for better alignment */
+        .asset-table th:first-child,
+        .asset-table td:first-child {
+          width: 60px;
+          text-align: center;
+        }
+        .asset-table th:nth-child(2),
+        .asset-table td:nth-child(2) {
+          min-width: 120px;
+        }
+        .asset-table th:nth-child(3),
+        .asset-table td:nth-child(3),
+        .asset-table th:nth-child(4),
+        .asset-table td:nth-child(4),
+        .asset-table th:nth-child(5),
+        .asset-table td:nth-child(5),
+        .asset-table th:nth-child(6),
+        .asset-table td:nth-child(6) {
+          min-width: 100px;
+        }
+        .asset-table th:nth-child(7),
+        .asset-table td:nth-child(7) {
+          min-width: 120px;
+        }
+        .asset-table th:last-child,
+        .asset-table td:last-child {
+          min-width: 140px;
+          text-align: right;
+        }
+
         .action-btn {
-          padding: 4px 8px;
+          padding: 3px 6px;
           border-radius: 6px;
           border: none;
           cursor: pointer;
           transition: all 0.15s;
-          font-size: 13px;
+          font-size: 11px;
           background: transparent;
+        }
+        @media (min-width: 640px) {
+          .action-btn {
+            padding: 4px 8px;
+            font-size: 13px;
+          }
         }
         .action-btn:hover {
           transform: scale(1.1);
@@ -852,23 +1025,36 @@ export default function AssetsPage() {
 
         .status-badge {
           display: inline-block;
-          padding: 3px 10px;
+          padding: 2px 8px;
           border-radius: 99px;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 600;
+        }
+        @media (min-width: 640px) {
+          .status-badge {
+            padding: 3px 10px;
+            font-size: 11px;
+          }
         }
 
         .filter-select {
-          padding: 9px 14px;
+          padding: 8px 12px;
           border: 1px solid #e2e8f0;
           border-radius: 10px;
           background: white;
-          font-size: 13px;
+          font-size: 12px;
           color: #1f2937;
           outline: none;
           transition: all 0.2s;
           cursor: pointer;
-          min-width: 140px;
+          min-width: 120px;
+        }
+        @media (min-width: 640px) {
+          .filter-select {
+            padding: 9px 14px;
+            font-size: 13px;
+            min-width: 140px;
+          }
         }
         .filter-select:focus {
           border-color: #dc2626;
@@ -877,12 +1063,19 @@ export default function AssetsPage() {
 
         .modal-grid-2 {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 18px 24px;
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
+        @media (min-width: 640px) {
+          .modal-grid-2 {
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 24px;
+          }
         }
         .modal-grid-2 .full-width {
           grid-column: 1 / -1;
         }
+        
         .input-icon-wrapper {
           position: relative;
         }
@@ -900,6 +1093,7 @@ export default function AssetsPage() {
         .input-icon-wrapper textarea,
         .input-icon-wrapper select {
           padding-left: 42px;
+          padding-right: 12px;
         }
         .input-icon-wrapper textarea {
           padding-top: 12px;
@@ -931,21 +1125,33 @@ export default function AssetsPage() {
           object-fit: contain;
         }
         .image-thumbnail {
-          width: 48px;
-          height: 48px;
+          width: 36px;
+          height: 36px;
           object-fit: cover;
-          border-radius: 8px;
+          border-radius: 6px;
           border: 1px solid #e2e8f0;
+        }
+        @media (min-width: 640px) {
+          .image-thumbnail {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+          }
         }
 
         .upload-dropzone {
           border: 2px dashed #e2e8f0;
           border-radius: 12px;
-          padding: 24px;
+          padding: 16px;
           text-align: center;
           cursor: pointer;
           transition: all 0.2s ease;
           background: #fafbfc;
+        }
+        @media (min-width: 640px) {
+          .upload-dropzone {
+            padding: 24px;
+          }
         }
         .upload-dropzone:hover {
           border-color: #dc2626;
@@ -956,17 +1162,134 @@ export default function AssetsPage() {
           background: #fef2f2;
         }
         .upload-dropzone .upload-icon {
-          font-size: 32px;
-          margin-bottom: 8px;
+          font-size: 24px;
+          margin-bottom: 4px;
+        }
+        @media (min-width: 640px) {
+          .upload-dropzone .upload-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+          }
         }
         .upload-dropzone .upload-text {
           color: #64748b;
-          font-size: 14px;
+          font-size: 12px;
+        }
+        @media (min-width: 640px) {
+          .upload-dropzone .upload-text {
+            font-size: 14px;
+          }
         }
         .upload-dropzone .upload-subtext {
           color: #94a3b8;
-          font-size: 12px;
-          margin-top: 4px;
+          font-size: 10px;
+          margin-top: 2px;
+        }
+        @media (min-width: 640px) {
+          .upload-dropzone .upload-subtext {
+            font-size: 12px;
+            margin-top: 4px;
+          }
+        }
+
+        .toggle-switch {
+          position: relative;
+          display: inline-block;
+          width: 42px;
+          height: 22px;
+        }
+        @media (min-width: 640px) {
+          .toggle-switch {
+            width: 50px;
+            height: 24px;
+          }
+        }
+        .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: 0.3s;
+          border-radius: 24px;
+        }
+        .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 16px;
+          width: 16px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: 0.3s;
+          border-radius: 50%;
+        }
+        @media (min-width: 640px) {
+          .toggle-slider:before {
+            height: 18px;
+            width: 18px;
+          }
+        }
+        input:checked + .toggle-slider {
+          background-color: #dc2626;
+        }
+        input:checked + .toggle-slider:before {
+          transform: translateX(20px);
+        }
+        @media (min-width: 640px) {
+          input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+          }
+        }
+
+        /* Responsive: Action buttons in table */
+        .action-cell {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 2px;
+          justify-content: flex-end;
+        }
+        @media (min-width: 640px) {
+          .action-cell {
+            gap: 4px;
+          }
+        }
+
+        /* Responsive: Stats grid */
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+        @media (min-width: 640px) {
+          .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+          }
+        }
+
+        /* Responsive: Search and filters */
+        .search-filters {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+        @media (min-width: 640px) {
+          .search-filters {
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+          }
         }
       `}</style>
 
@@ -976,45 +1299,48 @@ export default function AssetsPage() {
           <div className="absolute bottom-20 right-10 w-96 h-96 bg-rose-100/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
         </div>
 
-        <div className="relative p-6 lg:p-8 max-w-7xl mx-auto">
+        <div className="relative p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {/* ─── Header ─── */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 fade-in-up">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 gap-3 sm:gap-4 fade-in-up">
+            <div className="w-full md:w-auto">
+              <div className="flex items-center gap-2 sm:gap-3 mb-0.5">
+                <div className="relative w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md flex-shrink-0">
                   <svg
-                    width="20"
-                    height="20"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="white"
                     strokeWidth="2"
+                    className="sm:w-5 sm:h-5"
                   >
                     <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
                     <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
                 </div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-gray-800">
-                  Assets
-                </h1>
+                <div>
+                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-800">
+                    Assets
+                  </h1>
+                  <p className="text-xs sm:text-sm text-gray-500 mt-0.5 font-normal">
+                    Manage all company assets, assign to departments and users
+                  </p>
+                </div>
               </div>
-              <p className="text-gray-500 ml-14 pl-0.5 text-sm font-normal">
-                Manage all company assets, assign to departments and users
-              </p>
             </div>
 
             <button
               onClick={() => setShowModal(true)}
-              className="cursor-pointer group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden"
+              className="cursor-pointer group relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden w-full sm:w-auto justify-center"
             >
               <svg
-                width="18"
-                height="18"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.5"
-                className="group-hover:rotate-90 transition-transform duration-300"
+                className="group-hover:rotate-90 transition-transform duration-300 sm:w-4.5 sm:h-4.5"
               >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
@@ -1025,65 +1351,65 @@ export default function AssetsPage() {
 
           {/* ─── Stats ─── */}
           {!loading && assets.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-5 mb-6 fade-in-up">
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
+            <div className="stats-grid fade-in-up">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#dc2626"
                     strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
                   >
                     <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
                     <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {assets.filter((a) => a.is_active !== false).length}
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {activeCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
                     Total Assets
                   </p>
                 </div>
               </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-green-50 flex items-center justify-center">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-green-100 to-green-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#16a34a"
                     strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
                   >
                     <circle cx="12" cy="12" r="10" />
                     <path d="M12 6v6l4 2" />
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {
-                      assets.filter(
-                        (a) =>
-                          a.is_active !== false && a.status === "AVAILABLE",
-                      ).length
-                    }
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {availableCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">Available</p>
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
+                    Available
+                  </p>
                 </div>
               </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#2563eb"
                     strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
                   >
                     <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
                     <circle cx="9" cy="7" r="4" />
@@ -1092,34 +1418,33 @@ export default function AssetsPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {
-                      assets.filter(
-                        (a) => a.is_active !== false && a.status === "ASSIGNED",
-                      ).length
-                    }
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {assignedCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">Assigned</p>
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
+                    Assigned
+                  </p>
                 </div>
               </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#6b7280"
                     strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
                   >
                     <path d="M12 8v4l3 3" />
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {assets.filter((a) => a.is_active === false).length}
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {deactivatedCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
                     Deactivated
                   </p>
                 </div>
@@ -1128,11 +1453,11 @@ export default function AssetsPage() {
           )}
 
           {/* ─── Search & Filter ─── */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 fade-in-up">
+          <div className="search-filters fade-in-up">
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-              <div className="relative max-w-md w-full sm:w-72">
+              <div className="relative w-full sm:w-72">
                 <svg
-                  className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                  className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -1146,7 +1471,7 @@ export default function AssetsPage() {
                   placeholder="Search assets..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-sm font-normal"
+                  className="w-full pl-9 sm:pl-11 pr-3 sm:pr-4 py-2.5 sm:py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal"
                 />
               </div>
               <select
@@ -1162,23 +1487,39 @@ export default function AssetsPage() {
                 <option value="DECOMMISSIONED">Decommissioned</option>
               </select>
             </div>
-            <div className="text-sm text-gray-500 font-normal">
-              {filteredAssets.length}{" "}
-              {filteredAssets.length === 1 ? "asset" : "assets"} found
+            <div className="flex items-center gap-2 sm:gap-3 bg-white/80 backdrop-blur-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl shadow-sm border border-gray-100">
+              <span
+                className={`text-[10px] sm:text-sm font-medium ${!showDeactivated ? "text-red-600" : "text-gray-500"}`}
+              >
+                Active
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={showDeactivated}
+                  onChange={() => setShowDeactivated(!showDeactivated)}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+              <span
+                className={`text-[10px] sm:text-sm font-medium ${showDeactivated ? "text-red-600" : "text-gray-500"}`}
+              >
+                Deactivated
+              </span>
             </div>
           </div>
 
           {/* ─── Loading State ─── */}
           {loading && (
-            <div className="flex justify-center items-center py-20">
-              <div className="w-12 h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
+            <div className="flex justify-center items-center py-16 sm:py-20">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
             </div>
           )}
 
           {/* ─── Table ─── */}
           {!loading && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
-              <div className="overflow-x-auto">
+              <div className="table-wrapper">
                 <table className="asset-table">
                   <thead>
                     <tr>
@@ -1187,6 +1528,7 @@ export default function AssetsPage() {
                       <th>Category</th>
                       <th>Type</th>
                       <th>Department</th>
+                      <th>Location</th>
                       <th>Assigned To</th>
                       <th>Status</th>
                       <th className="text-right">Actions</th>
@@ -1196,12 +1538,14 @@ export default function AssetsPage() {
                     {filteredAssets.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={8}
-                          className="text-center py-12 text-gray-500 text-sm font-normal"
+                          colSpan={9}
+                          className="text-center py-8 sm:py-12 text-gray-500 text-xs sm:text-sm font-normal"
                         >
                           {searchTerm || statusFilter
                             ? "No assets match your filters"
-                            : "No assets found. Create your first asset!"}
+                            : showDeactivated
+                              ? "No deactivated assets found"
+                              : "No assets found. Create your first asset!"}
                         </td>
                       </tr>
                     ) : (
@@ -1224,25 +1568,36 @@ export default function AssetsPage() {
                                 }
                               />
                             ) : (
-                              <span className="text-gray-400 text-xs">—</span>
+                              <span className="text-gray-400 text-[10px] sm:text-xs">
+                                —
+                              </span>
                             )}
                           </td>
-                          <td className="font-semibold text-gray-900">
+                          <td className="font-semibold text-gray-900 text-xs sm:text-sm whitespace-nowrap">
                             {asset.name}
                           </td>
-                          <td className="text-gray-600">
+                          <td className="text-gray-600 text-xs sm:text-sm">
                             {getCategoryName(asset.category_id)}
                           </td>
-                          <td className="text-gray-600">
+                          <td className="text-gray-600 text-xs sm:text-sm">
                             {getTypeName(asset.type_id)}
                           </td>
-                          <td className="text-gray-600">
+                          <td className="text-gray-600 text-xs sm:text-sm">
                             {getDepartmentName(asset.department_id)}
                           </td>
-                          <td className="text-gray-600">
+                          <td className="text-gray-600 text-xs sm:text-sm">
+                            {asset.location_id ? (
+                              <span className="text-[10px] sm:text-xs text-gray-600">
+                                {getLocationName(asset.location_id)}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="text-gray-600 text-xs sm:text-sm whitespace-nowrap">
                             {getUserName(asset.assigned_to_user_id)}
                           </td>
-                          <td>
+                          <td className="whitespace-nowrap">
                             <span
                               className={`status-badge ${getStatusBadge(asset.status)}`}
                             >
@@ -1250,21 +1605,25 @@ export default function AssetsPage() {
                             </span>
                           </td>
                           <td>
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="action-cell">
                               {asset.assigned_to_user_id ? (
                                 <button
-                                  onClick={() => handleUnassignAsset(asset)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUnassignAsset(asset);
+                                  }}
                                   className="action-btn unassign"
                                   title="Unassign"
                                   disabled={submitting}
                                 >
                                   <svg
-                                    width="18"
-                                    height="18"
+                                    width="14"
+                                    height="14"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
                                     strokeWidth="2"
+                                    className="sm:w-4.5 sm:h-4.5"
                                   >
                                     <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
                                     <circle cx="9" cy="7" r="4" />
@@ -1276,17 +1635,21 @@ export default function AssetsPage() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => openAssignModal(asset)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAssignModal(asset);
+                                  }}
                                   className="action-btn assign"
                                   title="Assign"
                                 >
                                   <svg
-                                    width="18"
-                                    height="18"
+                                    width="14"
+                                    height="14"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
                                     strokeWidth="2"
+                                    className="sm:w-4.5 sm:h-4.5"
                                   >
                                     <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
                                     <circle cx="9" cy="7" r="4" />
@@ -1298,39 +1661,49 @@ export default function AssetsPage() {
                                 </button>
                               )}
                               <button
-                                onClick={() => openEditModal(asset)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(asset);
+                                }}
                                 className="action-btn edit"
                                 title="Edit"
                               >
                                 <svg
-                                  width="18"
-                                  height="18"
+                                  width="14"
+                                  height="14"
                                   viewBox="0 0 24 24"
                                   fill="none"
                                   stroke="currentColor"
                                   strokeWidth="2"
+                                  className="sm:w-4.5 sm:h-4.5"
                                 >
                                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                                   <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                 </svg>
                               </button>
-                              <button
-                                onClick={() => openDeleteConfirm(asset)}
-                                className="action-btn delete"
-                                title="Deactivate"
-                              >
-                                <svg
-                                  width="18"
-                                  height="18"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
+                              {asset.is_active !== false && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDeleteConfirm(asset);
+                                  }}
+                                  className="action-btn delete"
+                                  title="Deactivate"
                                 >
-                                  <path d="M3 6h18" />
-                                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                                </svg>
-                              </button>
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="sm:w-4.5 sm:h-4.5"
+                                  >
+                                    <path d="M3 6h18" />
+                                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1344,1031 +1717,1398 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: Create Asset Modal with Image Upload ─── */}
+      {/* ─── CREATE ASSET MODAL ─── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Create Asset
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Add a new asset to the system
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+                  Create Asset
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
+                  Add a new asset to the system
+                </p>
               </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100 flex-shrink-0"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="sm:w-4 sm:h-4"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-              <form onSubmit={handleCreateAsset}>
-                <div className="modal-grid-2">
-                  {/* Asset Name - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Asset Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏷️</span>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, name: e.target.value })
-                        }
-                        required
-                        autoComplete="off"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Dell Latitude 5440"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Category <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📂</span>
-                      <select
-                        value={formData.category_id}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            category_id: e.target.value,
-                            type_id: "",
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select Category</option>
-                        {categories.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Type */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Type <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔧</span>
-                      <select
-                        value={formData.type_id}
-                        onChange={(e) =>
-                          setFormData({ ...formData, type_id: e.target.value })
-                        }
-                        required
-                        disabled={!formData.category_id}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">
-                          {formData.category_id
-                            ? "Select Type"
-                            : "Select Category First"}
-                        </option>
-                        {filteredTypes.map((type) => (
-                          <option key={type.id} value={type.id}>
-                            {type.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={formData.description}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            description: e.target.value,
-                          })
-                        }
-                        rows={2}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Optional description"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Serial Number */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Serial Number
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔢</span>
-                      <input
-                        type="text"
-                        value={formData.serial_number}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            serial_number: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="SN-12345"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Model */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Model
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📟</span>
-                      <input
-                        type="text"
-                        value={formData.model}
-                        onChange={(e) =>
-                          setFormData({ ...formData, model: e.target.value })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Latitude 5440"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Manufacturer */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Manufacturer
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏭</span>
-                      <input
-                        type="text"
-                        value={formData.manufacturer}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            manufacturer: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Dell"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Department */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏛️</span>
-                      <select
-                        value={formData.department_id}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            department_id: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select Department</option>
-                        {departments.map((dept) => (
-                          <option key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Assigned To */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Assigned To
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">👤</span>
-                      <select
-                        value={formData.assigned_to_user_id}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            assigned_to_user_id: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select User</option>
-                        {users.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Purchase Date */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Purchase Date
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📅</span>
-                      <input
-                        type="date"
-                        value={formData.purchase_date}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            purchase_date: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Purchase Value */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Purchase Value ($)
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">💰</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.purchase_value}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            purchase_value: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Image Upload - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Asset Image
-                    </label>
+            <form onSubmit={handleCreateAsset}>
+              <div className="modal-grid-2">
+                {/* Asset Name - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Asset Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏷️</span>
                     <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      disabled={uploading}
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value });
+                        if (formErrors.name)
+                          setFormErrors({ ...formErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Dell Latitude 5440"
                     />
-                    <div
-                      className="upload-dropzone"
-                      onClick={() => fileInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.add("dragging");
-                      }}
-                      onDragLeave={(e) => {
-                        e.currentTarget.classList.remove("dragging");
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.remove("dragging");
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) {
-                          const inputEvent = new Event("change", {
-                            bubbles: true,
-                          });
-                          Object.defineProperty(inputEvent, "target", {
-                            value: { files: [file] },
-                          });
-                          handleImageUpload(inputEvent as any);
-                        }
-                      }}
-                    >
-                      {uploading ? (
-                        <div className="flex items-center justify-center gap-3 py-4">
-                          <span className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
-                          <span className="text-sm text-gray-500">
-                            Uploading...
-                          </span>
-                        </div>
-                      ) : formData.image_url ? (
-                        <div className="flex items-center justify-center gap-3 py-2">
-                          <span className="text-green-500 text-lg">✅</span>
-                          <span className="text-sm text-gray-600">
-                            Image uploaded successfully
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeImage();
-                            }}
-                            className="text-xs text-red-500 hover:text-red-700 font-medium"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="upload-icon">🖼️</div>
-                          <p className="upload-text">
-                            Click or drag to upload image
-                          </p>
-                          <p className="upload-subtext">
-                            PNG, JPG, JPEG up to 5MB
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                  </div>
+                  {formErrors.name && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.name}
+                    </p>
+                  )}
+                </div>
 
-                    {/* Image Preview */}
-                    {imagePreview && (
-                      <div className="image-preview p-2 mt-3">
-                        <img
-                          src={imagePreview}
-                          alt="Asset preview"
-                          className="w-full max-h-48 object-contain"
-                          onError={() => setImagePreview("")}
-                        />
+                {/* Category */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📂</span>
+                    <select
+                      value={formData.category_id}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          category_id: e.target.value,
+                          type_id: "",
+                        });
+                        if (formErrors.category_id)
+                          setFormErrors({ ...formErrors, category_id: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.category_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">Select Category</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.category_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.category_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Type */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔧</span>
+                    <select
+                      value={formData.type_id}
+                      onChange={(e) => {
+                        setFormData({ ...formData, type_id: e.target.value });
+                        if (formErrors.type_id)
+                          setFormErrors({ ...formErrors, type_id: "" });
+                      }}
+                      required
+                      disabled={!formData.category_id}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed ${
+                        formErrors.type_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">
+                        {formData.category_id
+                          ? "Select Type"
+                          : "Select Category First"}
+                      </option>
+                      {filteredTypes.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.type_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.type_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          description: e.target.value,
+                        });
+                        if (formErrors.description)
+                          setFormErrors({ ...formErrors, description: "" });
+                      }}
+                      rows={2}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                  {formErrors.description && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Serial Number */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Serial Number
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔢</span>
+                    <input
+                      type="text"
+                      value={formData.serial_number}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          serial_number: e.target.value,
+                        });
+                        if (formErrors.serial_number)
+                          setFormErrors({ ...formErrors, serial_number: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.serial_number
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="SN-12345"
+                    />
+                  </div>
+                  {formErrors.serial_number && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.serial_number}
+                    </p>
+                  )}
+                </div>
+
+                {/* Model */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Model
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📟</span>
+                    <input
+                      type="text"
+                      value={formData.model}
+                      onChange={(e) => {
+                        setFormData({ ...formData, model: e.target.value });
+                        if (formErrors.model)
+                          setFormErrors({ ...formErrors, model: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.model
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Latitude 5440"
+                    />
+                  </div>
+                  {formErrors.model && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.model}
+                    </p>
+                  )}
+                </div>
+
+                {/* Manufacturer */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Manufacturer
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏭</span>
+                    <input
+                      type="text"
+                      value={formData.manufacturer}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          manufacturer: e.target.value,
+                        });
+                        if (formErrors.manufacturer)
+                          setFormErrors({ ...formErrors, manufacturer: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.manufacturer
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Dell"
+                    />
+                  </div>
+                  {formErrors.manufacturer && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.manufacturer}
+                    </p>
+                  )}
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Department
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏛️</span>
+                    <select
+                      value={formData.department_id}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          department_id: e.target.value,
+                        });
+                        if (formErrors.department_id)
+                          setFormErrors({ ...formErrors, department_id: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.department_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">Select Department</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.department_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.department_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Assigned To */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Assigned To
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <select
+                      value={formData.assigned_to_user_id}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          assigned_to_user_id: e.target.value,
+                        });
+                        if (formErrors.assigned_to_user_id)
+                          setFormErrors({
+                            ...formErrors,
+                            assigned_to_user_id: "",
+                          });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.assigned_to_user_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">Select User</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.assigned_to_user_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.assigned_to_user_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Location */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Location
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📍</span>
+                    <select
+                      value={formData.location_id}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          location_id: e.target.value,
+                        });
+                        if (formErrors.location_id)
+                          setFormErrors({ ...formErrors, location_id: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.location_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">Select Location</option>
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.full_path} ({loc.location_type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.location_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.location_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Purchase Date */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Purchase Date
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📅</span>
+                    <input
+                      type="date"
+                      value={formData.purchase_date}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          purchase_date: e.target.value,
+                        });
+                        if (formErrors.purchase_date)
+                          setFormErrors({ ...formErrors, purchase_date: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.purchase_date
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    />
+                  </div>
+                  {formErrors.purchase_date && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.purchase_date}
+                    </p>
+                  )}
+                </div>
+
+                {/* Purchase Value */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Purchase Value ($)
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">💰</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.purchase_value}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          purchase_value: e.target.value,
+                        });
+                        if (formErrors.purchase_value)
+                          setFormErrors({ ...formErrors, purchase_value: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        formErrors.purchase_value
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {formErrors.purchase_value && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.purchase_value}
+                    </p>
+                  )}
+                </div>
+
+                {/* Image Upload - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Asset Image
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    disabled={uploading}
+                  />
+                  <div
+                    className="upload-dropzone"
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add("dragging");
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove("dragging");
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("dragging");
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) {
+                        const inputEvent = new Event("change", {
+                          bubbles: true,
+                        });
+                        Object.defineProperty(inputEvent, "target", {
+                          value: { files: [file] },
+                        });
+                        handleImageUpload(inputEvent as any);
+                      }
+                    }}
+                  >
+                    {uploading ? (
+                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4">
+                        <span className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
+                        <span className="text-xs sm:text-sm text-gray-500">
+                          Uploading...
+                        </span>
+                      </div>
+                    ) : formData.image_url ? (
+                      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
+                        <span className="text-green-500 text-base sm:text-lg">
+                          ✅
+                        </span>
+                        <span className="text-xs sm:text-sm text-gray-600">
+                          Image uploaded successfully
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeImage();
+                          }}
+                          className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-medium"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="upload-icon">🖼️</div>
+                        <p className="upload-text">
+                          Click or drag to upload image
+                        </p>
+                        <p className="upload-subtext">
+                          PNG, JPG, JPEG up to 5MB
+                        </p>
                       </div>
                     )}
+                  </div>
 
-                    {/* Fallback URL input */}
-                    <div className="mt-3">
-                      <p className="text-xs text-gray-400 mb-1">
-                        Or enter image URL directly
-                      </p>
-                      <input
-                        type="text"
-                        value={formData.image_url}
-                        onChange={handleImageUrlChange}
-                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 text-sm"
-                        placeholder="https://example.com/asset-image.jpg"
-                        disabled={uploading}
+                  {imagePreview && (
+                    <div className="image-preview p-1.5 sm:p-2 mt-2 sm:mt-3">
+                      <img
+                        src={imagePreview}
+                        alt="Asset preview"
+                        className="w-full max-h-36 sm:max-h-48 object-contain"
+                        onError={() => setImagePreview("")}
                       />
                     </div>
-                  </div>
+                  )}
 
-                  {/* Status - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Status <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📊</span>
-                      <select
-                        value={formData.status}
-                        onChange={(e) =>
-                          setFormData({ ...formData, status: e.target.value })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="AVAILABLE">Available</option>
-                        <option value="ASSIGNED">Assigned</option>
-                        <option value="MAINTENANCE">Maintenance</option>
-                        <option value="TRANSIT">In Transit</option>
-                        <option value="DECOMMISSIONED">Decommissioned</option>
-                      </select>
-                    </div>
+                  <div className="mt-2 sm:mt-3">
+                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
+                      Or enter image URL directly
+                    </p>
+                    <input
+                      type="text"
+                      value={formData.image_url}
+                      onChange={handleImageUrlChange}
+                      className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 border rounded-xl focus:outline-none focus:ring-2 text-xs sm:text-sm ${
+                        formErrors.image_url
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="https://example.com/asset-image.jpg"
+                      disabled={uploading}
+                    />
                   </div>
+                  {formErrors.image_url && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.image_url}
+                    </p>
+                  )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting || uploading}
-                    className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Creating...
-                      </>
-                    ) : (
-                      "Create Asset"
-                    )}
-                  </button>
+                {/* Status - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Status <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📊</span>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => {
+                        setFormData({ ...formData, status: e.target.value });
+                        if (formErrors.status)
+                          setFormErrors({ ...formErrors, status: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        formErrors.status
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="AVAILABLE">Available</option>
+                      <option value="ASSIGNED">Assigned</option>
+                      <option value="MAINTENANCE">Maintenance</option>
+                      <option value="TRANSIT">In Transit</option>
+                      <option value="DECOMMISSIONED">Decommissioned</option>
+                    </select>
+                  </div>
+                  {formErrors.status && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {formErrors.status}
+                    </p>
+                  )}
                 </div>
-              </form>
-            </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4 sm:pt-6 mt-2 sm:mt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="cursor-pointer flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-xs sm:text-sm order-2 sm:order-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || uploading}
+                  className="cursor-pointer flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Asset"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Edit Asset Modal with Image Upload ─── */}
+      {/* ─── EDIT ASSET MODAL ─── */}
       {showEditModal && selectedAsset && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Edit Asset
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Update asset details
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+                  Edit Asset
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
+                  Update asset details
+                </p>
               </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100 flex-shrink-0"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="sm:w-4 sm:h-4"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-              <form onSubmit={handleUpdateAsset}>
-                <div className="modal-grid-2">
-                  {/* Asset Name - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Asset Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏷️</span>
-                      <input
-                        type="text"
-                        value={editFormData.name}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            name: e.target.value,
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Category <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📂</span>
-                      <select
-                        value={editFormData.category_id}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            category_id: e.target.value,
-                            type_id: "",
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select Category</option>
-                        {categories.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Type */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Type <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔧</span>
-                      <select
-                        value={editFormData.type_id}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            type_id: e.target.value,
-                          })
-                        }
-                        required
-                        disabled={!editFormData.category_id}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">
-                          {editFormData.category_id
-                            ? "Select Type"
-                            : "Select Category First"}
-                        </option>
-                        {filteredTypes.map((type) => (
-                          <option key={type.id} value={type.id}>
-                            {type.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={editFormData.description}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            description: e.target.value,
-                          })
-                        }
-                        rows={2}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Optional description"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Serial Number */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Serial Number
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔢</span>
-                      <input
-                        type="text"
-                        value={editFormData.serial_number}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            serial_number: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Model */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Model
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📟</span>
-                      <input
-                        type="text"
-                        value={editFormData.model}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            model: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Manufacturer */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Manufacturer
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏭</span>
-                      <input
-                        type="text"
-                        value={editFormData.manufacturer}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            manufacturer: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Department */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏛️</span>
-                      <select
-                        value={editFormData.department_id}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            department_id: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select Department</option>
-                        {departments.map((dept) => (
-                          <option key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Assigned To */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Assigned To
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">👤</span>
-                      <select
-                        value={editFormData.assigned_to_user_id}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            assigned_to_user_id: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select User</option>
-                        {users.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Purchase Date */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Purchase Date
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📅</span>
-                      <input
-                        type="date"
-                        value={editFormData.purchase_date}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            purchase_date: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 text-sm font-normal"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Purchase Value */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Purchase Value ($)
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">💰</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editFormData.purchase_value}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            purchase_value: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Image Upload - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Asset Image
-                    </label>
+            <form onSubmit={handleUpdateAsset}>
+              <div className="modal-grid-2">
+                {/* Asset Name - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Asset Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏷️</span>
                     <input
-                      ref={editFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleEditImageUpload}
-                      className="hidden"
-                      disabled={editUploading}
+                      type="text"
+                      value={editFormData.name}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          name: e.target.value,
+                        });
+                        if (editErrors.name)
+                          setEditErrors({ ...editErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
                     />
-                    <div
-                      className="upload-dropzone"
-                      onClick={() => editFileInputRef.current?.click()}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.add("dragging");
-                      }}
-                      onDragLeave={(e) => {
-                        e.currentTarget.classList.remove("dragging");
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.currentTarget.classList.remove("dragging");
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) {
-                          const inputEvent = new Event("change", {
-                            bubbles: true,
-                          });
-                          Object.defineProperty(inputEvent, "target", {
-                            value: { files: [file] },
-                          });
-                          handleEditImageUpload(inputEvent as any);
-                        }
-                      }}
-                    >
-                      {editUploading ? (
-                        <div className="flex items-center justify-center gap-3 py-4">
-                          <span className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
-                          <span className="text-sm text-gray-500">
-                            Uploading...
-                          </span>
-                        </div>
-                      ) : editFormData.image_url ? (
-                        <div className="flex items-center justify-center gap-3 py-2">
-                          <span className="text-green-500 text-lg">✅</span>
-                          <span className="text-sm text-gray-600">
-                            Image uploaded successfully
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeEditImage();
-                            }}
-                            className="text-xs text-red-500 hover:text-red-700 font-medium"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="upload-icon">🖼️</div>
-                          <p className="upload-text">
-                            Click or drag to upload image
-                          </p>
-                          <p className="upload-subtext">
-                            PNG, JPG, JPEG up to 5MB
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                  </div>
+                  {editErrors.name && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.name}
+                    </p>
+                  )}
+                </div>
 
-                    {/* Image Preview */}
-                    {editImagePreview && (
-                      <div className="image-preview p-2 mt-3">
-                        <img
-                          src={editImagePreview}
-                          alt="Asset preview"
-                          className="w-full max-h-48 object-contain"
-                          onError={() => setEditImagePreview("")}
-                        />
+                {/* Category */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📂</span>
+                    <select
+                      value={editFormData.category_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          category_id: e.target.value,
+                          type_id: "",
+                        });
+                        if (editErrors.category_id)
+                          setEditErrors({ ...editErrors, category_id: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.category_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select Category</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.category_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.category_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Type */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔧</span>
+                    <select
+                      value={editFormData.type_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          type_id: e.target.value,
+                        });
+                        if (editErrors.type_id)
+                          setEditErrors({ ...editErrors, type_id: "" });
+                      }}
+                      required
+                      disabled={!editFormData.category_id}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal disabled:opacity-50 disabled:cursor-not-allowed ${
+                        editErrors.type_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">
+                        {editFormData.category_id
+                          ? "Select Type"
+                          : "Select Category First"}
+                      </option>
+                      {filteredTypes.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.type_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.type_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={editFormData.description}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          description: e.target.value,
+                        });
+                        if (editErrors.description)
+                          setEditErrors({ ...editErrors, description: "" });
+                      }}
+                      rows={2}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                  {editErrors.description && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Serial Number */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Serial Number
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔢</span>
+                    <input
+                      type="text"
+                      value={editFormData.serial_number}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          serial_number: e.target.value,
+                        });
+                        if (editErrors.serial_number)
+                          setEditErrors({ ...editErrors, serial_number: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.serial_number
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    />
+                  </div>
+                  {editErrors.serial_number && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.serial_number}
+                    </p>
+                  )}
+                </div>
+
+                {/* Model */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Model
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📟</span>
+                    <input
+                      type="text"
+                      value={editFormData.model}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          model: e.target.value,
+                        });
+                        if (editErrors.model)
+                          setEditErrors({ ...editErrors, model: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.model
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    />
+                  </div>
+                  {editErrors.model && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.model}
+                    </p>
+                  )}
+                </div>
+
+                {/* Manufacturer */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Manufacturer
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏭</span>
+                    <input
+                      type="text"
+                      value={editFormData.manufacturer}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          manufacturer: e.target.value,
+                        });
+                        if (editErrors.manufacturer)
+                          setEditErrors({ ...editErrors, manufacturer: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.manufacturer
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    />
+                  </div>
+                  {editErrors.manufacturer && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.manufacturer}
+                    </p>
+                  )}
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Department
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏛️</span>
+                    <select
+                      value={editFormData.department_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          department_id: e.target.value,
+                        });
+                        if (editErrors.department_id)
+                          setEditErrors({ ...editErrors, department_id: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.department_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select Department</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.department_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.department_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Assigned To */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Assigned To
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <select
+                      value={editFormData.assigned_to_user_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          assigned_to_user_id: e.target.value,
+                        });
+                        if (editErrors.assigned_to_user_id)
+                          setEditErrors({
+                            ...editErrors,
+                            assigned_to_user_id: "",
+                          });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.assigned_to_user_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select User</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.assigned_to_user_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.assigned_to_user_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Location */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Location
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📍</span>
+                    <select
+                      value={editFormData.location_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          location_id: e.target.value,
+                        });
+                        if (editErrors.location_id)
+                          setEditErrors({ ...editErrors, location_id: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.location_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select Location</option>
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.full_path} ({loc.location_type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.location_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.location_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Purchase Date */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Purchase Date
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📅</span>
+                    <input
+                      type="date"
+                      value={editFormData.purchase_date}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          purchase_date: e.target.value,
+                        });
+                        if (editErrors.purchase_date)
+                          setEditErrors({ ...editErrors, purchase_date: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.purchase_date
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    />
+                  </div>
+                  {editErrors.purchase_date && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.purchase_date}
+                    </p>
+                  )}
+                </div>
+
+                {/* Purchase Value */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Purchase Value ($)
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">💰</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editFormData.purchase_value}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          purchase_value: e.target.value,
+                        });
+                        if (editErrors.purchase_value)
+                          setEditErrors({ ...editErrors, purchase_value: "" });
+                      }}
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal ${
+                        editErrors.purchase_value
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {editErrors.purchase_value && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.purchase_value}
+                    </p>
+                  )}
+                </div>
+
+                {/* Image Upload - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Asset Image
+                  </label>
+                  <input
+                    ref={editFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditImageUpload}
+                    className="hidden"
+                    disabled={editUploading}
+                  />
+                  <div
+                    className="upload-dropzone"
+                    onClick={() => editFileInputRef.current?.click()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add("dragging");
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove("dragging");
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("dragging");
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) {
+                        const inputEvent = new Event("change", {
+                          bubbles: true,
+                        });
+                        Object.defineProperty(inputEvent, "target", {
+                          value: { files: [file] },
+                        });
+                        handleEditImageUpload(inputEvent as any);
+                      }
+                    }}
+                  >
+                    {editUploading ? (
+                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4">
+                        <span className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
+                        <span className="text-xs sm:text-sm text-gray-500">
+                          Uploading...
+                        </span>
+                      </div>
+                    ) : editFormData.image_url ? (
+                      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
+                        <span className="text-green-500 text-base sm:text-lg">
+                          ✅
+                        </span>
+                        <span className="text-xs sm:text-sm text-gray-600">
+                          Image uploaded successfully
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeEditImage();
+                          }}
+                          className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-medium"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="upload-icon">🖼️</div>
+                        <p className="upload-text">
+                          Click or drag to upload image
+                        </p>
+                        <p className="upload-subtext">
+                          PNG, JPG, JPEG up to 5MB
+                        </p>
                       </div>
                     )}
+                  </div>
 
-                    {/* Fallback URL input */}
-                    <div className="mt-3">
-                      <p className="text-xs text-gray-400 mb-1">
-                        Or enter image URL directly
-                      </p>
-                      <input
-                        type="text"
-                        value={editFormData.image_url}
-                        onChange={handleEditImageUrlChange}
-                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 text-sm"
-                        placeholder="https://example.com/asset-image.jpg"
-                        disabled={editUploading}
+                  {editImagePreview && (
+                    <div className="image-preview p-1.5 sm:p-2 mt-2 sm:mt-3">
+                      <img
+                        src={editImagePreview}
+                        alt="Asset preview"
+                        className="w-full max-h-36 sm:max-h-48 object-contain"
+                        onError={() => setEditImagePreview("")}
                       />
                     </div>
-                  </div>
+                  )}
 
-                  {/* Status - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Status <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📊</span>
-                      <select
-                        value={editFormData.status}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            status: e.target.value,
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="AVAILABLE">Available</option>
-                        <option value="ASSIGNED">Assigned</option>
-                        <option value="MAINTENANCE">Maintenance</option>
-                        <option value="TRANSIT">In Transit</option>
-                        <option value="DECOMMISSIONED">Decommissioned</option>
-                      </select>
-                    </div>
+                  <div className="mt-2 sm:mt-3">
+                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
+                      Or enter image URL directly
+                    </p>
+                    <input
+                      type="text"
+                      value={editFormData.image_url}
+                      onChange={handleEditImageUrlChange}
+                      className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 border rounded-xl focus:outline-none focus:ring-2 text-xs sm:text-sm ${
+                        editErrors.image_url
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="https://example.com/asset-image.jpg"
+                      disabled={editUploading}
+                    />
                   </div>
+                  {editErrors.image_url && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.image_url}
+                    </p>
+                  )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting || editUploading}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Updating...
-                      </>
-                    ) : (
-                      "Update Asset"
-                    )}
-                  </button>
+                {/* Status - full width */}
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Status <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📊</span>
+                    <select
+                      value={editFormData.status}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          status: e.target.value,
+                        });
+                        if (editErrors.status)
+                          setEditErrors({ ...editErrors, status: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        editErrors.status
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="AVAILABLE">Available</option>
+                      <option value="ASSIGNED">Assigned</option>
+                      <option value="MAINTENANCE">Maintenance</option>
+                      <option value="TRANSIT">In Transit</option>
+                      <option value="DECOMMISSIONED">Decommissioned</option>
+                    </select>
+                  </div>
+                  {editErrors.status && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {editErrors.status}
+                    </p>
+                  )}
                 </div>
-              </form>
-            </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4 sm:pt-6 mt-2 sm:mt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-xs sm:text-sm order-2 sm:order-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || editUploading}
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Asset"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Assign Modal ─── */}
+      {/* ─── ASSIGN MODAL ─── */}
       {showAssignModal && selectedAsset && (
         <div
           className="modal-overlay"
           onClick={() => setShowAssignModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-green-400/60 via-green-300/40 to-green-400/60 rounded-t-2xl"></div>
-
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Assign Asset
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Assign{" "}
-                    <span className="font-semibold">{selectedAsset.name}</span>{" "}
-                    to a user
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowAssignModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+                  Assign Asset
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
+                  Assign{" "}
+                  <span className="font-semibold">{selectedAsset.name}</span> to
+                  a user
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100 flex-shrink-0"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="sm:w-4 sm:h-4"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignAsset}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                    Select User <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <select
+                      value={assignFormData.user_id}
+                      onChange={(e) => {
+                        setAssignFormData({
+                          ...assignFormData,
+                          user_id: e.target.value,
+                        });
+                        if (assignErrors.user_id)
+                          setAssignErrors({ ...assignErrors, user_id: "" });
+                      }}
+                      required
+                      className={`w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-xs sm:text-sm font-normal ${
+                        assignErrors.user_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-green-400/50"
+                      }`}
+                    >
+                      <option value="">Select a user</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.full_name} ({user.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {assignErrors.user_id && (
+                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
+                      {assignErrors.user_id}
+                    </p>
+                  )}
+                </div>
+
+                <div className="full-width">
+                  <div className="bg-green-50 rounded-xl p-3 sm:p-4 border border-green-200">
+                    <p className="text-xs sm:text-sm text-green-700 font-medium">
+                      <span className="font-bold">Note:</span> Assigning this
+                      asset will change its status to "ASSIGNED".
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <form onSubmit={handleAssignAsset}>
-                <div className="modal-grid-2">
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Select User <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">👤</span>
-                      <select
-                        value={assignFormData.user_id}
-                        onChange={(e) =>
-                          setAssignFormData({
-                            ...assignFormData,
-                            user_id: e.target.value,
-                          })
-                        }
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400/50 focus:border-green-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select a user</option>
-                        {users.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.full_name} ({user.email})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="full-width">
-                    <div className="bg-green-50 rounded-xl p-4 border border-green-200">
-                      <p className="text-sm text-green-700 font-medium">
-                        <span className="font-bold">Note:</span> Assigning this
-                        asset will change its status to "ASSIGNED".
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowAssignModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Assigning...
-                      </>
-                    ) : (
-                      "Assign Asset"
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4 sm:pt-6 mt-2 sm:mt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAssignModal(false)}
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-xs sm:text-sm order-2 sm:order-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Assigning...
+                    </>
+                  ) : (
+                    "Assign Asset"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Delete Confirmation ─── */}
+      {/* ─── DELETE CONFIRMATION ─── */}
       {showDeleteConfirm && selectedAsset && (
         <div
           className="modal-overlay"
@@ -2379,49 +3119,50 @@ export default function AssetsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-full bg-red-100 flex items-center justify-center">
                 <svg
-                  width="28"
-                  height="28"
+                  width="22"
+                  height="22"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#dc2626"
                   strokeWidth="2"
+                  className="sm:w-7 sm:h-7"
                 >
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-1.5 sm:mb-2">
                 Deactivate Asset?
               </h3>
-              <p className="text-gray-500 text-sm mb-2 font-normal">
+              <p className="text-gray-500 text-xs sm:text-sm mb-2 font-normal">
                 Are you sure you want to deactivate{" "}
                 <span className="font-semibold text-gray-700">
                   {selectedAsset.name}
                 </span>
                 ?
               </p>
-              <p className="text-xs text-gray-400 mb-4 font-normal">
+              <p className="text-[10px] sm:text-xs text-gray-400 mb-4 sm:mb-6 font-normal">
                 This will hide the asset from active lists. This action can be
                 reversed.
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-xs sm:text-sm order-2 sm:order-1"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteAsset}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
                 >
                   {submitting ? (
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     "Yes, Deactivate"
                   )}

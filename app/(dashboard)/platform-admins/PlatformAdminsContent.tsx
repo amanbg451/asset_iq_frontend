@@ -17,7 +17,6 @@ interface PlatformAdmin {
 
 type ViewMode = "table" | "grid";
 
-// ─── Helper: Export to CSV ──────────────────────────────────────────────────
 const exportToCSV = (data: PlatformAdmin[], filename: string) => {
   const headers = ["Full Name", "Email", "Role", "Status"];
   const rows = data.map((a) => [
@@ -41,7 +40,6 @@ const exportToCSV = (data: PlatformAdmin[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Export to Excel ────────────────────────────────────────────────
 const exportToExcel = (data: PlatformAdmin[], filename: string) => {
   const headers = ["Full Name", "Email", "Role", "Status"];
   const rows = data.map((a) => [
@@ -66,7 +64,6 @@ const exportToExcel = (data: PlatformAdmin[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
 const getUserRoleFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -87,12 +84,17 @@ export default function PlatformAdminsContent() {
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
-  const [selectedAdmin, setSelectedAdmin] = useState<PlatformAdmin | null>(null);
+  const [selectedAdmin, setSelectedAdmin] = useState<PlatformAdmin | null>(
+    null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const [mounted, setMounted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -103,17 +105,14 @@ export default function PlatformAdminsContent() {
     password: "",
   });
 
-  // ─── Check if user is ADMIN ───────────────────────────────────────────────
   const userRole = getUserRoleFromToken();
   const isAdmin = userRole === "ADMIN";
 
-  // ─── Set mounted state ─────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // ─── Position dropdown when it opens ──────────────────────────────────────
   useEffect(() => {
     if (showExportDropdown && exportButtonRef.current) {
       const rect = exportButtonRef.current.getBoundingClientRect();
@@ -126,7 +125,6 @@ export default function PlatformAdminsContent() {
     }
   }, [showExportDropdown]);
 
-  // ─── Redirect if not ADMIN ─────────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -140,7 +138,6 @@ export default function PlatformAdminsContent() {
     }
   }, [router, isAdmin]);
 
-  // ─── Fetch Platform Admins ─────────────────────────────────────────────────
   const fetchAdmins = useCallback(async () => {
     try {
       setLoading(true);
@@ -158,7 +155,6 @@ export default function PlatformAdminsContent() {
     fetchAdmins();
   }, [fetchAdmins]);
 
-  // ─── Create Platform Admin ─────────────────────────────────────────────────
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -177,7 +173,6 @@ export default function PlatformAdminsContent() {
     }
   };
 
-  // ─── Deactivate Platform Admin ─────────────────────────────────────────────
   const handleDeactivateAdmin = async () => {
     if (!selectedAdmin) return;
     setSubmitting(true);
@@ -194,7 +189,6 @@ export default function PlatformAdminsContent() {
     }
   };
 
-  // ─── Restore Platform Admin ─────────────────────────────────────────────────
   const handleRestoreAdmin = async () => {
     if (!selectedAdmin) return;
     setSubmitting(true);
@@ -211,30 +205,33 @@ export default function PlatformAdminsContent() {
     }
   };
 
-  // ─── Export Handlers ──────────────────────────────────────────────────────
   const handleExportCSV = () => {
-    exportToCSV(admins, `platform_admins_${new Date().toISOString().split("T")[0]}`);
+    exportToCSV(
+      admins,
+      `platform_admins_${new Date().toISOString().split("T")[0]}`,
+    );
     setShowExportDropdown(false);
     toast.success("CSV exported successfully");
   };
 
   const handleExportExcel = () => {
-    exportToExcel(admins, `platform_admins_${new Date().toISOString().split("T")[0]}`);
+    exportToExcel(
+      admins,
+      `platform_admins_${new Date().toISOString().split("T")[0]}`,
+    );
     setShowExportDropdown(false);
     toast.success("Excel exported successfully");
   };
 
-  // ─── Search Filter ─────────────────────────────────────────────────────────
   const filteredAdmins = admins.filter(
     (admin) =>
       admin.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      admin.email.toLowerCase().includes(searchTerm.toLowerCase())
+      admin.email.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   const activeCount = admins.filter((a) => a.is_active).length;
   const deactivatedCount = admins.filter((a) => !a.is_active).length;
 
-  // ─── View Mode Labels ──────────────────────────────────────────────────────
   const viewModeLabels: Record<ViewMode, string> = {
     table: "📋 Table",
     grid: "📊 Grid",
@@ -268,8 +265,8 @@ export default function PlatformAdminsContent() {
           justify-content: center;
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
+          padding: 16px;
         }
-        /* Enhanced modal: bigger, two-column layout */
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
           border-radius: 32px;
@@ -279,47 +276,20 @@ export default function PlatformAdminsContent() {
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
           box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
-          padding: 28px 32px 32px;
+          padding: 24px 20px 28px;
         }
 
-        /* ─── Beautiful Rounded Scrollbar ──────────────────────────────────── */
-        .modal-content::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
+        @media (min-width: 640px) {
+          .modal-content {
+            padding: 28px 32px 32px;
+          }
         }
 
-        .modal-content::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 20px;
-          margin: 12px 0;
-          box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.02);
-        }
-
-        .modal-content::-webkit-scrollbar-thumb {
-          background: linear-gradient(180deg, #dc2626, #ef4444);
-          border-radius: 20px;
-          border: 2px solid transparent;
-          background-clip: padding-box;
-          transition: all 0.2s ease;
-        }
-
-        .modal-content::-webkit-scrollbar-thumb:hover {
-          background: linear-gradient(180deg, #b91c1c, #dc2626);
-          border: 1px solid transparent;
-          background-clip: padding-box;
-          transform: scale(1.05);
-        }
-
-        /* Firefox scrollbar support */
-        .modal-content {
-          scrollbar-width: thin;
-          scrollbar-color: #dc2626 #f1f5f9;
-          scroll-behavior: smooth;
-        }
-
-        .modal-content::-webkit-scrollbar-track:hover {
-          background: #e8edf4;
-        }
+        .modal-content::-webkit-scrollbar { width: 6px; }
+        .modal-content::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 20px; margin: 12px 0; }
+        .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #dc2626, #ef4444); border-radius: 20px; border: 2px solid transparent; background-clip: padding-box; }
+        .modal-content::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #b91c1c, #dc2626); }
+        .modal-content { scrollbar-width: thin; scrollbar-color: #dc2626 #f1f5f9; scroll-behavior: smooth; }
         
         .delete-modal { max-width: 440px; }
         
@@ -343,7 +313,6 @@ export default function PlatformAdminsContent() {
           box-shadow: 0 12px 30px -12px rgba(0,0,0,0.15);
         }
         
-        /* Softer placeholder color */
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -358,12 +327,41 @@ export default function PlatformAdminsContent() {
           opacity: 0.9;
         }
 
-        /* ─── Table Styles ──────────────────────────────────────────────────── */
+        /* Table with horizontal scroll - ONLY the table scrolls */
+        .table-wrapper {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scroll-behavior: smooth;
+        }
+        
+        .table-wrapper::-webkit-scrollbar {
+          height: 8px;
+        }
+        .table-wrapper::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 20px;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb {
+          background: linear-gradient(90deg, #dc2626, #ef4444);
+          border-radius: 20px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(90deg, #b91c1c, #dc2626);
+        }
+
         .admin-table {
           width: 100%;
           border-collapse: collapse;
           font-size: 14px;
           font-weight: 400;
+          min-width: 650px;
+        }
+        @media (min-width: 1024px) {
+          .admin-table {
+            min-width: auto;
+          }
         }
         .admin-table thead th {
           text-align: left;
@@ -390,7 +388,19 @@ export default function PlatformAdminsContent() {
           background: #fef2f2;
         }
 
-        /* ─── View Toggle Buttons ──────────────────────────────────────────── */
+        .admin-table .email-cell {
+          max-width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        @media (min-width: 1024px) {
+          .admin-table .email-cell {
+            max-width: none;
+            white-space: normal;
+          }
+        }
+
         .view-toggle-btn {
           padding: 6px 14px;
           border-radius: 8px;
@@ -413,16 +423,21 @@ export default function PlatformAdminsContent() {
           box-shadow: 0 2px 8px rgba(220,38,38,0.25);
         }
 
-        /* Two-column grid for modal fields */
         .modal-grid-2 {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 18px 24px;
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
+        @media (min-width: 640px) {
+          .modal-grid-2 {
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 24px;
+          }
         }
         .modal-grid-2 .full-width {
           grid-column: 1 / -1;
         }
-        /* Icon inside input */
+        
         .input-icon-wrapper {
           position: relative;
         }
@@ -438,8 +453,8 @@ export default function PlatformAdminsContent() {
         }
         .input-icon-wrapper input {
           padding-left: 42px;
+          padding-right: 12px;
         }
-        /* Password toggle button */
         .password-toggle {
           position: absolute;
           right: 14px;
@@ -463,6 +478,19 @@ export default function PlatformAdminsContent() {
         .password-toggle svg {
           width: 18px;
           height: 18px;
+        }
+
+        /* Responsive actions */
+        .action-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        @media (min-width: 640px) {
+          .action-buttons {
+            flex-direction: row;
+            gap: 12px;
+          }
         }
       `}</style>
 
@@ -545,16 +573,18 @@ export default function PlatformAdminsContent() {
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
                 </button>
-                {showExportDropdown && mounted && dropdownPosition && (
+                {showExportDropdown &&
+                  mounted &&
+                  dropdownPosition &&
                   createPortal(
-                    <div 
+                    <div
                       className="fixed bg-white rounded-xl shadow-2xl border border-gray-100 py-1 fade-in-up"
                       style={{
                         zIndex: 999999,
-                        minWidth: '180px',
+                        minWidth: "180px",
                         top: dropdownPosition.top,
                         left: dropdownPosition.left,
-                        transform: 'translateX(-50%)',
+                        transform: "translateX(-50%)",
                       }}
                     >
                       <button
@@ -570,9 +600,8 @@ export default function PlatformAdminsContent() {
                         <span>📄</span> Export to CSV
                       </button>
                     </div>,
-                    document.body
-                  )
-                )}
+                    document.body,
+                  )}
               </div>
 
               {/* ─── Add Admin Button ─── */}
@@ -597,9 +626,9 @@ export default function PlatformAdminsContent() {
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Stats Cards - Compact */}
           {!loading && admins.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6 fade-in-up">
+            <div className="grid grid-cols-2 gap-4 mb-6 fade-in-up">
               <div className="stat-card p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
                   <svg
@@ -617,8 +646,12 @@ export default function PlatformAdminsContent() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">{admins.length}</p>
-                  <p className="text-sm font-medium text-gray-500">Total Admins</p>
+                  <p className="text-3xl font-bold text-gray-800">
+                    {admins.length}
+                  </p>
+                  <p className="text-sm font-medium text-gray-500">
+                    Total Admins
+                  </p>
                 </div>
               </div>
               <div className="stat-card p-4 flex items-center gap-4">
@@ -636,7 +669,9 @@ export default function PlatformAdminsContent() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">{activeCount}</p>
+                  <p className="text-3xl font-bold text-gray-800">
+                    {activeCount}
+                  </p>
                   <p className="text-sm font-medium text-gray-500">Active</p>
                 </div>
               </div>
@@ -664,9 +699,10 @@ export default function PlatformAdminsContent() {
                 className="w-full pl-11 pr-4 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-sm font-normal"
               />
             </div>
-
             <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl shadow-sm border border-gray-100">
-              <span className="text-sm font-medium text-gray-500">Showing {filteredAdmins.length} admins</span>
+              <span className="text-sm font-medium text-gray-500">
+                Showing {filteredAdmins.length} admins
+              </span>
             </div>
           </div>
 
@@ -705,8 +741,12 @@ export default function PlatformAdminsContent() {
                         <h3 className="font-bold text-gray-900 text-lg mb-1">
                           {admin.full_name}
                         </h3>
-                        <p className="text-sm text-gray-500 mb-2">{admin.email}</p>
-                        <p className="text-xs text-gray-400">Role: {admin.role}</p>
+                        <p className="text-sm text-gray-500 mb-2">
+                          {admin.email}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Role: {admin.role}
+                        </p>
                         <div className="mt-3 text-right">
                           <span className="text-xs text-gray-400 font-normal">
                             ID: {admin.id.slice(0, 8)}...
@@ -718,10 +758,10 @@ export default function PlatformAdminsContent() {
                 </div>
               )}
 
-              {/* ─── TABLE VIEW ─── */}
+              {/* ─── TABLE VIEW WITH HORIZONTAL SCROLL ─── */}
               {viewMode === "table" && (
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
-                  <div className="overflow-x-auto">
+                  <div className="table-wrapper">
                     <table className="admin-table">
                       <thead>
                         <tr>
@@ -735,32 +775,41 @@ export default function PlatformAdminsContent() {
                       <tbody>
                         {filteredAdmins.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="text-center py-12 text-gray-500 text-sm font-normal">
+                            <td
+                              colSpan={5}
+                              className="text-center py-12 text-gray-500 text-sm font-normal"
+                            >
                               No platform admins found
                             </td>
                           </tr>
                         ) : (
                           filteredAdmins.map((admin) => (
                             <tr key={admin.id}>
-                              <td className="font-semibold text-gray-900">{admin.full_name}</td>
-                              <td className="text-gray-600">{admin.email}</td>
-                              <td className="text-gray-600">{admin.role}</td>
-                              <td>
+                              <td className="font-semibold text-gray-900 whitespace-nowrap">
+                                {admin.full_name}
+                              </td>
+                              <td className="email-cell text-gray-600">
+                                {admin.email}
+                              </td>
+                              <td className="text-gray-600 whitespace-nowrap">
+                                {admin.role}
+                              </td>
+                              <td className="whitespace-nowrap">
                                 <span
                                   className={`px-2.5 py-1 rounded-full text-xs font-semibold ${admin.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
                                 >
                                   {admin.is_active ? "Active" : "Deactivated"}
                                 </span>
                               </td>
-                              <td>
-                                <div className="flex gap-2">
+                              <td className="whitespace-nowrap">
+                                <div className="action-buttons">
                                   {admin.is_active ? (
                                     <button
                                       onClick={() => {
                                         setSelectedAdmin(admin);
                                         setShowDeleteConfirm(true);
                                       }}
-                                      className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                                      className="text-red-600 hover:text-red-800 text-sm font-semibold whitespace-nowrap"
                                     >
                                       Deactivate
                                     </button>
@@ -770,7 +819,7 @@ export default function PlatformAdminsContent() {
                                         setSelectedAdmin(admin);
                                         setShowRestoreConfirm(true);
                                       }}
-                                      className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                                      className="text-green-600 hover:text-green-800 text-sm font-semibold whitespace-nowrap"
                                     >
                                       Restore
                                     </button>
@@ -810,7 +859,9 @@ export default function PlatformAdminsContent() {
                 No platform admins found
               </h3>
               <p className="text-gray-500 mb-4 text-sm font-normal">
-                {searchTerm ? "Try adjusting your search" : "Add your first platform admin"}
+                {searchTerm
+                  ? "Try adjusting your search"
+                  : "Add your first platform admin"}
               </p>
               {!searchTerm && (
                 <button
@@ -825,162 +876,169 @@ export default function PlatformAdminsContent() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: Create Admin Modal ─── */}
+      {/* ─── Create Admin Modal ─── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              {/* Subtle accent line */}
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Create Platform Admin
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Enter admin details below
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-              <div className="flex justify-between items-start mb-6">
+            <form onSubmit={handleCreateAdmin}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <input
+                      type="text"
+                      value={formData.full_name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, full_name: e.target.value })
+                      }
+                      required
+                      autoComplete="off"
+                      className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                      placeholder="John Doe"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Create Platform Admin
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    Enter admin details below
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">✉️</span>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) =>
+                        setFormData({ ...formData, email: e.target.value })
+                      }
+                      required
+                      autoComplete="new-email"
+                      className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                      placeholder="admin@assetiq.com"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Password <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔒</span>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={(e) =>
+                        setFormData({ ...formData, password: e.target.value })
+                      }
+                      required
+                      autoComplete="new-password"
+                      className="w-full px-4 py-2.5 pl-10 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                        </svg>
+                      ) : (
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                    Min 8 characters with uppercase, lowercase, and number
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
               </div>
 
-              <form onSubmit={handleCreateAdmin}>
-                <div className="modal-grid-2">
-                  {/* Full Name - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">👤</span>
-                      <input
-                        type="text"
-                        value={formData.full_name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, full_name: e.target.value })
-                        }
-                        required
-                        autoComplete="off"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="John Doe"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Email */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Email <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">✉️</span>
-                      <input
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) =>
-                          setFormData({ ...formData, email: e.target.value })
-                        }
-                        required
-                        autoComplete="new-email"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="admin@assetiq.com"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Password with show/hide */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Password <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🔒</span>
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        value={formData.password}
-                        onChange={(e) =>
-                          setFormData({ ...formData, password: e.target.value })
-                        }
-                        required
-                        autoComplete="new-password"
-                        className="w-full px-4 py-2.5 pl-10 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="••••••••"
-                      />
-                      <button
-                        type="button"
-                        className="password-toggle"
-                        onClick={() => setShowPassword(!showPassword)}
-                        tabIndex={-1}
-                      >
-                        {showPassword ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
-                            <line x1="1" y1="1" x2="23" y2="23" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                            <circle cx="12" cy="12" r="3" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
-                      Min 8 characters with uppercase, lowercase, and number
-                    </p>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Creating...
-                      </>
-                    ) : (
-                      "Create Admin"
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Admin"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Delete Confirmation Modal ─── */}
+      {/* ─── Delete Confirmation Modal ─── */}
       {showDeleteConfirm && selectedAdmin && (
-        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
                 <svg
@@ -1030,10 +1088,16 @@ export default function PlatformAdminsContent() {
         </div>
       )}
 
-      {/* ─── ENHANCED: Restore Confirmation Modal ─── */}
+      {/* ─── Restore Confirmation Modal ─── */}
       {showRestoreConfirm && selectedAdmin && (
-        <div className="modal-overlay" onClick={() => setShowRestoreConfirm(false)}>
-          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowRestoreConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
                 <svg

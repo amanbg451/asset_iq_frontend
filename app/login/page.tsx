@@ -2,10 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import axios from "axios";
 import toast from "react-hot-toast";
+import api from "../lib/api";
 
-// ----------------- Animated Background Dots ---------------------------------
+const decodeToken = (token: string) => {
+  try {
+    const payload = token.split(".")[1];
+    return JSON.parse(atob(payload));
+  } catch (error) {
+    console.error("Failed to decode token", error);
+    return null;
+  }
+};
+
 function AnimatedDots() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -26,7 +35,6 @@ function AnimatedDots() {
   );
 }
 
-// ------ Left Panel Illustration ---------------------------------
 function DashboardIllustration() {
   return (
     <div className="relative w-full h-full flex items-center justify-center overflow-hidden select-none">
@@ -319,7 +327,6 @@ function DashboardIllustration() {
   );
 }
 
-// ------ Password Visibility Toggle Icon ---------------------------------
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
     <svg
@@ -348,9 +355,9 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
-// ------ Main Login Page Component ---------------------------------
 export default function LoginPage() {
   const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -361,10 +368,9 @@ export default function LoginPage() {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passFocused, setPassFocused] = useState(false);
 
-  // ─── Load saved email on mount ──────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
-    
+
     const savedEmail = localStorage.getItem("remembered_email");
     if (savedEmail) {
       setEmail(savedEmail);
@@ -372,120 +378,73 @@ export default function LoginPage() {
     }
   }, []);
 
-  // ─── UPDATED: Handle Login with 3 attempts ──────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(false);
 
-    try {
-      // ─── 1. Try Platform Admin Login ─────────────────────────────────────
-      let response = await axios.post(
-        "http://localhost:8000/platform-admins/login",
-        {
+    const endpoints = [
+      { url: "/platform-admins/login", role: "PLATFORM_ADMIN" },
+      { url: "/client/login", role: "CLIENT_ADMIN" },
+      { url: "/users/login", role: "USER" },
+    ];
+
+    let allFailed = true;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await api.post(endpoint.url, {
           email,
           password,
-        },
-      );
+        });
 
-      const { access_token } = response.data;
-      localStorage.setItem("access_token", access_token);
+        const { access_token } = response.data;
+        localStorage.setItem("access_token", access_token);
 
-      if (rememberMe) {
-        localStorage.setItem("remembered_email", email);
-      } else {
-        localStorage.removeItem("remembered_email");
-      }
+        if (rememberMe) {
+          localStorage.setItem("remembered_email", email);
+        } else {
+          localStorage.removeItem("remembered_email");
+        }
 
-      const payload = JSON.parse(atob(access_token.split(".")[1]));
-      const role = payload.role;
+        const payload = decodeToken(access_token);
+        const role = payload?.role || endpoint.role;
 
-      toast.success(`Welcome ${role}!`);
-      router.push("/dashboard");
-      setLoading(false);
-      return;
-    } catch (platformError: any) {
-      // Platform Admin login failed - continue to next
-    }
+        toast.success(`Welcome ${role}!`);
+        router.push("/dashboard");
+        setLoading(false);
+        return;
+      } catch (error: any) {
+        if (error.response?.status === 401) {
+          continue;
+        }
 
-    try {
-      // ─── 2. Try Client Admin Login ──────────────────────────────────────
-      const response = await axios.post(
-        "http://localhost:8000/client/login",
-        {
-          email,
-          password,
-        },
-      );
+        if (error.response?.status === 403) {
+          const message = error.response?.data?.detail || "";
+          if (
+            message.toLowerCase().includes("subscription") ||
+            message.toLowerCase().includes("expired") ||
+            message.toLowerCase().includes("inactive")
+          ) {
+            toast.error("Subscription expired. Please contact support.");
+            router.push("/subscription-expired");
+            setLoading(false);
+            return;
+          }
+        }
 
-      const { access_token } = response.data;
-      localStorage.setItem("access_token", access_token);
-
-      if (rememberMe) {
-        localStorage.setItem("remembered_email", email);
-      } else {
-        localStorage.removeItem("remembered_email");
-      }
-
-      const payload = JSON.parse(atob(access_token.split(".")[1]));
-      const role = payload.role;
-
-      toast.success(`Welcome ${role}!`);
-      router.push("/dashboard");
-      setLoading(false);
-      return;
-    } catch (clientError: any) {
-      // Check if it's a subscription error
-      const errorDetail = clientError.response?.data?.detail || "";
-      const statusCode = clientError.response?.status;
-
-      if (
-        statusCode === 403 &&
-        (errorDetail.toLowerCase().includes("subscription") ||
-          errorDetail.toLowerCase().includes("expired") ||
-          errorDetail.toLowerCase().includes("inactive"))
-      ) {
-        toast.error("Subscription expired or inactive. Please contact administrator.");
-        router.push("/subscription-expired");
+        toast.error(error.response?.data?.detail || "Login failed");
+        setError(true);
+        setTimeout(() => setError(false), 600);
         setLoading(false);
         return;
       }
-      // Client Admin login failed - continue to next
     }
 
-    try {
-      // ─── 3. NEW: Try Normal User Login ──────────────────────────────────
-      const response = await axios.post(
-        "http://localhost:8000/users/login",
-        {
-          email,
-          password,
-        },
-      );
-
-      const { access_token } = response.data;
-      localStorage.setItem("access_token", access_token);
-
-      if (rememberMe) {
-        localStorage.setItem("remembered_email", email);
-      } else {
-        localStorage.removeItem("remembered_email");
-      }
-
-      const payload = JSON.parse(atob(access_token.split(".")[1]));
-      const role = payload.role || "USER";
-
-      toast.success(`Welcome ${role}!`);
-      router.push("/dashboard");
-      setLoading(false);
-      return;
-    } catch (userError: any) {
-      // All login attempts failed
-      setError(true);
-      toast.error("Invalid email or password");
-      setTimeout(() => setError(false), 600);
-      setLoading(false);
-    }
+    setError(true);
+    toast.error("Invalid email or password");
+    setTimeout(() => setError(false), 600);
+    setLoading(false);
   };
 
   return (
@@ -899,7 +858,7 @@ export default function LoginPage() {
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200"
+                        className="cursor-pointer absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200"
                         style={{ color: "#9CA3AF" }}
                         onMouseEnter={(e) =>
                           (e.currentTarget.style.color = "#DC2626")
@@ -956,7 +915,7 @@ export default function LoginPage() {
                     </label>
                     <button
                       type="button"
-                      className="text-xs font-semibold transition-colors duration-200"
+                      className="cursor-pointer text-xs font-semibold transition-colors duration-200"
                       style={{ color: "#9CA3AF" }}
                       onMouseEnter={(e) =>
                         (e.currentTarget.style.color = "#DC2626")
@@ -974,7 +933,7 @@ export default function LoginPage() {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="btn-signin w-full h-12 rounded-xl text-white font-semibold text-sm tracking-wide flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                      className="cursor-pointer btn-signin w-full h-12 rounded-xl text-white font-semibold text-sm tracking-wide flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                       {loading ? (
                         <>
@@ -1003,90 +962,6 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </form>
-
-                {/* ─ Divider ─ */}
-                <div className="stagger-6 flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-xs text-gray-400 font-medium">
-                    or continue with
-                  </span>
-                  <div className="flex-1 h-px bg-gray-100" />
-                </div>
-
-                {/* ─ Social Buttons ─ */}
-                <div className="stagger-7 grid grid-cols-2 gap-3">
-                  {/* Google */}
-                  <button
-                    type="button"
-                    className="social-btn flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-gray-700"
-                    style={{
-                      border: "1.5px solid #E5E7EB",
-                      background: "white",
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                      />
-                    </svg>
-                    Google
-                  </button>
-
-                  {/* SSO */}
-                  <button
-                    type="button"
-                    className="social-btn flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-gray-700"
-                    style={{
-                      border: "1.5px solid #E5E7EB",
-                      background: "white",
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#DC2626"
-                      strokeWidth="2"
-                    >
-                      <rect x="5" y="11" width="14" height="10" rx="2" />
-                      <path d="M8 11V7a4 4 0 018 0v4" />
-                      <circle cx="12" cy="16" r="1" fill="#DC2626" />
-                    </svg>
-                    SSO
-                  </button>
-                </div>
-
-                {/* ─ Footer ─ */}
-                <p className="stagger-7 text-center text-xs text-gray-500 mt-6">
-                  Don't have an account?{" "}
-                  <button
-                    type="button"
-                    className="font-semibold transition-colors duration-200"
-                    style={{ color: "#DC2626" }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.textDecoration = "underline")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.textDecoration = "none")
-                    }
-                  >
-                    Create one
-                  </button>
-                </p>
               </div>
             </div>
           </div>

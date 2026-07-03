@@ -675,134 +675,134 @@ export default function DashboardPage() {
   }, []);
 
   // ─── Build stats array based on role and real data ───────────────────────────
-const STATS = useMemo(() => {
-  if (userRole === "ADMIN") {
+  const STATS = useMemo(() => {
+    if (userRole === "ADMIN") {
+      return [
+        {
+          label: "Total Clients",
+          value: adminStats.totalClients,
+          change: 0,
+          accent: "#c0152a",
+          icon: "tag",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.totalClients],
+        },
+        {
+          label: "Active Clients",
+          value: adminStats.activeClients,
+          change: 0,
+          accent: "#0ea5e9",
+          icon: "gps",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.activeClients],
+        },
+        {
+          label: "Active Subscriptions",
+          value: adminStats.activeSubscriptions,
+          change: 0,
+          accent: "#f59e0b",
+          icon: "wrench",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.activeSubscriptions],
+        },
+        {
+          label: "Total Services",
+          value: adminStats.totalServices,
+          change: 0,
+          accent: "#10b981",
+          icon: "gps",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.totalServices],
+        },
+        {
+          label: "Total Users",
+          value: adminStats.totalUsers,
+          change: 0,
+          accent: "#8b5cf6",
+          icon: "clipboard",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.totalUsers],
+        },
+        {
+          label: "Total Departments",
+          value: adminStats.totalDepartments,
+          change: 0,
+          accent: "#ef4444",
+          icon: "alertc",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.totalDepartments],
+        },
+      ];
+    }
+
+    // ─── NEW: Manager Stats ──────────────────────────────────────────────────────
+    if (userRole === "MANAGER") {
+      return [
+        {
+          label: "Team Members",
+          value: clientStats.users,
+          change: 0,
+          accent: "#8b5cf6",
+          icon: "users",
+          spark: [0, 0, 0, 0, 0, 0, clientStats.users],
+        },
+        {
+          label: "Department Assets",
+          value: clientStats.departments,
+          change: 0,
+          accent: "#0ea5e9",
+          icon: "box",
+          spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
+        },
+      ];
+    }
+
+    // Client Admin Stats
     return [
       {
-        label: "Total Clients",
-        value: adminStats.totalClients,
+        label: "Departments",
+        value: clientStats.departments,
         change: 0,
         accent: "#c0152a",
         icon: "tag",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.totalClients],
+        spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
       },
       {
-        label: "Active Clients",
-        value: adminStats.activeClients,
+        label: "Managers",
+        value: clientStats.managers,
         change: 0,
         accent: "#0ea5e9",
-        icon: "gps",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.activeClients],
+        icon: "truck",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.managers],
       },
       {
-        label: "Active Subscriptions",
-        value: adminStats.activeSubscriptions,
-        change: 0,
-        accent: "#f59e0b",
-        icon: "wrench",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.activeSubscriptions],
-      },
-      {
-        label: "Total Services",
-        value: adminStats.totalServices,
+        label: "Active Users",
+        value: clientStats.users,
         change: 0,
         accent: "#10b981",
         icon: "gps",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.totalServices],
-      },
-      {
-        label: "Total Users",
-        value: adminStats.totalUsers,
-        change: 0,
-        accent: "#8b5cf6",
-        icon: "clipboard",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.totalUsers],
-      },
-      {
-        label: "Total Departments",
-        value: adminStats.totalDepartments,
-        change: 0,
-        accent: "#ef4444",
-        icon: "alertc",
-        spark: [0, 0, 0, 0, 0, 0, adminStats.totalDepartments],
-      },
-    ];
-  }
-
-  // ─── NEW: Manager Stats ──────────────────────────────────────────────────────
-  if (userRole === "MANAGER") {
-    return [
-      {
-        label: "Team Members",
-        value: clientStats.users,
-        change: 0,
-        accent: "#8b5cf6",
-        icon: "users",  // Note: Make sure 'users' icon exists in your Icon component
         spark: [0, 0, 0, 0, 0, 0, clientStats.users],
       },
       {
-        label: "Department Assets",
-        value: clientStats.departments,
+        label: "Licences Used",
+        value: clientStats.licencesUsed,
         change: 0,
-        accent: "#0ea5e9",
-        icon: "box",  // Note: Make sure 'box' icon exists in your Icon component
-        spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
+        accent: "#8b5cf6",
+        icon: "clipboard",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.licencesUsed],
+      },
+      {
+        label: "Licences Remaining",
+        value: clientStats.licenceRemaining,
+        change: 0,
+        accent: "#f59e0b",
+        icon: "alertc",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.licenceRemaining],
+      },
+      {
+        label: "Enabled Services",
+        value: clientStats.enabledServices.length,
+        change: 0,
+        accent: "#10b981",
+        icon: "check",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.enabledServices.length],
       },
     ];
-  }
-
-  // Client Admin Stats
-  return [
-    {
-      label: "Departments",
-      value: clientStats.departments,
-      change: 0,
-      accent: "#c0152a",
-      icon: "tag",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
-    },
-    {
-      label: "Managers",
-      value: clientStats.managers,
-      change: 0,
-      accent: "#0ea5e9",
-      icon: "truck",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.managers],
-    },
-    {
-      label: "Active Users",
-      value: clientStats.users,
-      change: 0,
-      accent: "#10b981",
-      icon: "gps",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.users],
-    },
-    {
-      label: "Licences Used",
-      value: clientStats.licencesUsed,
-      change: 0,
-      accent: "#8b5cf6",
-      icon: "clipboard",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.licencesUsed],
-    },
-    {
-      label: "Licences Remaining",
-      value: clientStats.licenceRemaining,
-      change: 0,
-      accent: "#f59e0b",
-      icon: "alertc",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.licenceRemaining],
-    },
-    {
-      label: "Enabled Services",
-      value: clientStats.enabledServices.length,
-      change: 0,
-      accent: "#10b981",
-      icon: "check",
-      spark: [0, 0, 0, 0, 0, 0, clientStats.enabledServices.length],
-    },
-  ];
-}, [userRole, adminStats, clientStats]);
+  }, [userRole, adminStats, clientStats]);
 
   const markAllRead = useCallback(
     () => setNotifs((n) => n.map((x) => ({ ...x, read: true }))),
@@ -1001,6 +1001,108 @@ const STATS = useMemo(() => {
         ::-webkit-scrollbar { width:4px; }
         ::-webkit-scrollbar-track { background:transparent; }
         ::-webkit-scrollbar-thumb { background:#e2e8f0;border-radius:99px; }
+
+        /* ─── RESPONSIVE STYLES ─── */
+        @media (max-width: 1280px) {
+          .kpi-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+          }
+        }
+        @media (max-width: 768px) {
+          .kpi-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          .map-panel-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .bottom-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .header-wrap {
+            flex-wrap: wrap !important;
+            padding: 12px 16px !important;
+          }
+          .search-wrap {
+            max-width: 100% !important;
+            flex: 1 1 100% !important;
+            order: 3 !important;
+          }
+          .header-actions {
+            flex-wrap: wrap !important;
+            justify-content: flex-end !important;
+          }
+          .notif-panel {
+            width: 300px !important;
+            right: -60px !important;
+          }
+          .date-panel {
+            width: 95vw !important;
+            padding: 20px !important;
+          }
+          .date-panel .period-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          .body-padding {
+            padding: 16px !important;
+          }
+          .stat-card {
+            padding: 12px !important;
+          }
+          .stat-card .stat-number {
+            font-size: 20px !important;
+          }
+          .stat-card .stat-label {
+            font-size: 9px !important;
+          }
+          .export-btn span {
+            display: none !important;
+          }
+          .period-trigger span {
+            display: none !important;
+          }
+          .period-trigger {
+            padding: 8px 10px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .kpi-grid {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 8px !important;
+          }
+          .stat-card {
+            padding: 10px !important;
+          }
+          .stat-card .stat-number {
+            font-size: 18px !important;
+          }
+          .stat-card .stat-label {
+            font-size: 8px !important;
+          }
+          .notif-panel {
+            width: 280px !important;
+            right: -80px !important;
+          }
+          .header-wrap {
+            padding: 10px 12px !important;
+          }
+          .body-padding {
+            padding: 12px !important;
+          }
+          .map-filter-btn {
+            padding: 3px 8px !important;
+            font-size: 10px !important;
+          }
+          .tab-pill {
+            padding: 4px 10px !important;
+            font-size: 10px !important;
+          }
+          .quick-btn {
+            padding: 8px 10px !important;
+          }
+          .quick-btn span {
+            font-size: 11px !important;
+          }
+        }
       `}</style>
 
       {showDateOverlay && (
@@ -1058,10 +1160,11 @@ const STATS = useMemo(() => {
                 marginBottom: 20,
                 display: "flex",
                 gap: 16,
+                flexWrap: "wrap",
               }}
             >
               {STATS.slice(0, 3).map((s) => (
-                <div key={s.label} style={{ flex: 1, textAlign: "center" }}>
+                <div key={s.label} style={{ flex: 1, minWidth: 80, textAlign: "center" }}>
                   <div
                     style={{
                       fontSize: 10,
@@ -1095,6 +1198,7 @@ const STATS = useMemo(() => {
               ))}
             </div>
             <div
+              className="period-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(3,1fr)",
@@ -1124,7 +1228,7 @@ const STATS = useMemo(() => {
       <div style={{ background: "#f8fafc", minHeight: "100vh" }}>
         {/* Sticky header */}
         <div
-          className="fade-up"
+          className="header-wrap fade-up"
           style={{
             background: "white",
             borderBottom: "1px solid #f1f5f9",
@@ -1161,6 +1265,7 @@ const STATS = useMemo(() => {
 
           <div
             ref={searchRef}
+            className="search-wrap"
             style={{ flex: 1, maxWidth: 420, position: "relative" }}
           >
             <div
@@ -1299,6 +1404,7 @@ const STATS = useMemo(() => {
           </div>
 
           <div
+            className="header-actions"
             style={{
               display: "flex",
               alignItems: "center",
@@ -1483,7 +1589,7 @@ const STATS = useMemo(() => {
                 setShowNotif(false);
               }}
             >
-              <Icon name="calendar" size={14} /> {selectedPeriod}
+              <Icon name="calendar" size={14} /> <span>{selectedPeriod}</span>
               <span
                 style={{
                   display: "inline-flex",
@@ -1499,15 +1605,16 @@ const STATS = useMemo(() => {
               className="export-btn"
               onClick={() => toast.success("Report generation started")}
             >
-              <Icon name="download" size={15} color="white" /> Export Report
+              <Icon name="download" size={15} color="white" /> <span>Export Report</span>
             </button>
           </div>
         </div>
 
         {/* Body */}
-        <div style={{ padding: "22px 28px", maxWidth: 1440 }}>
-          {/* KPI row */}
+        <div className="body-padding" style={{ padding: "22px 28px", maxWidth: 1440 }}>
+          {/* KPI row - Responsive Grid */}
           <div
+            className="kpi-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(6,1fr)",
@@ -1536,6 +1643,7 @@ const STATS = useMemo(() => {
                   }}
                 >
                   <span
+                    className="stat-label"
                     style={{
                       fontSize: 10,
                       fontWeight: 700,
@@ -1560,6 +1668,7 @@ const STATS = useMemo(() => {
                   </div>
                 </div>
                 <div
+                  className="stat-number"
                   style={{
                     fontSize: 23,
                     fontWeight: 800,
@@ -1603,8 +1712,9 @@ const STATS = useMemo(() => {
             ))}
           </div>
 
-          {/* Map + Panel */}
+          {/* Map + Panel - Responsive Grid */}
           <div
+            className="map-panel-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 330px",
@@ -1622,6 +1732,8 @@ const STATS = useMemo(() => {
                   justifyContent: "space-between",
                   alignItems: "center",
                   marginBottom: 12,
+                  flexWrap: "wrap",
+                  gap: 8,
                 }}
               >
                 <div>
@@ -1645,7 +1757,7 @@ const STATS = useMemo(() => {
                     OpenStreetMap · Delhi NCR
                   </p>
                 </div>
-                <div style={{ display: "flex", gap: 5 }}>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                   {(["all", "transit", "idle", "maintenance"] as const).map(
                     (f) => (
                       <button
@@ -1686,6 +1798,8 @@ const STATS = useMemo(() => {
                   alignItems: "center",
                   justifyContent: "space-between",
                   marginBottom: 12,
+                  flexWrap: "wrap",
+                  gap: 6,
                 }}
               >
                 <div
@@ -1819,6 +1933,7 @@ const STATS = useMemo(() => {
                               alignItems: "center",
                               gap: 6,
                               marginBottom: 3,
+                              flexWrap: "wrap",
                             }}
                           >
                             <span
@@ -1881,8 +1996,9 @@ const STATS = useMemo(() => {
             </div>
           </div>
 
-          {/* Bottom row */}
+          {/* Bottom row - Responsive Grid */}
           <div
+            className="bottom-grid"
             style={{
               display: "grid",
               gridTemplateColumns: "1fr 270px 220px",
@@ -1899,6 +2015,8 @@ const STATS = useMemo(() => {
                   justifyContent: "space-between",
                   alignItems: "flex-start",
                   marginBottom: 18,
+                  flexWrap: "wrap",
+                  gap: 8,
                 }}
               >
                 <div>

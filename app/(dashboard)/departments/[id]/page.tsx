@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import toast from "react-hot-toast";
+import { z } from "zod";
 import api from "@/app/lib/api";
 
 interface Department {
@@ -24,7 +25,32 @@ interface Manager {
   is_active: boolean;
 }
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
+// ZOD VALIDATION SCHEMAS
+
+const departmentSchema = z.object({
+  name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  code: z
+    .string()
+    .min(2, "Code must be at least 2 characters")
+    .max(20, "Code must be at most 20 characters")
+    .regex(
+      /^[A-Z0-9_]+$/,
+      "Code must contain only uppercase letters, numbers, and underscores",
+    ),
+  description: z
+    .string()
+    .max(500, "Description must be at most 500 characters")
+    .optional()
+    .default(""),
+});
+
+const assignManagerSchema = z.object({
+  manager_id: z.string().min(1, "Please select a manager"),
+});
+
 const getClientIdFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -37,7 +63,6 @@ const getClientIdFromToken = () => {
   }
 };
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
 const getUserRoleFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -59,17 +84,21 @@ export default function DepartmentDetailsPage() {
   const [manager, setManager] = useState<Manager | null>(null);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showManagerModal, setShowManagerModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [editFormData, setEditFormData] = useState({
     name: "",
     code: "",
     description: "",
   });
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
   const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [managerErrors, setManagerErrors] = useState<Record<string, string>>(
+    {},
+  );
 
   const fetchDepartment = async () => {
     try {
@@ -79,7 +108,6 @@ export default function DepartmentDetailsPage() {
       const role = getUserRoleFromToken();
 
       let managersUrl = "/users/managers";
-      
       if (clientId && role !== "CLIENT_ADMIN") {
         managersUrl = `/users/clients/${clientId}/managers`;
       }
@@ -91,6 +119,7 @@ export default function DepartmentDetailsPage() {
           .catch(() => ({ data: null })),
         api.get(managersUrl).catch(() => ({ data: [] })),
       ]);
+
       setDepartment(deptRes.data);
       setManager(managerRes.data);
       setManagers(managersRes.data);
@@ -117,11 +146,25 @@ export default function DepartmentDetailsPage() {
   const handleUpdateDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!department) return;
+
+    const result = departmentSchema.safeParse(editFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setEditErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await api.patch(`/departments/${department.id}`, editFormData);
+      await api.patch(`/departments/${department.id}`, result.data);
       toast.success("Department updated successfully");
       setShowEditModal(false);
+      setEditErrors({});
       fetchDepartment();
     } catch (error: any) {
       console.error("Error updating department:", error);
@@ -136,6 +179,21 @@ export default function DepartmentDetailsPage() {
   const handleAssignManager = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!department) return;
+
+    const result = assignManagerSchema.safeParse({
+      manager_id: selectedManagerId,
+    });
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setManagerErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
+
     setSubmitting(true);
     try {
       await api.patch(`/departments/${department.id}/assign-manager`, {
@@ -143,6 +201,7 @@ export default function DepartmentDetailsPage() {
       });
       toast.success("Manager assigned successfully");
       setShowManagerModal(false);
+      setManagerErrors({});
       fetchDepartment();
     } catch (error: any) {
       console.error("Error assigning manager:", error);
@@ -210,8 +269,15 @@ export default function DepartmentDetailsPage() {
         code: department.code,
         description: department.description || "",
       });
+      setEditErrors({});
       setShowEditModal(true);
     }
+  };
+
+  const openManagerModal = () => {
+    setSelectedManagerId(manager?.id || "");
+    setManagerErrors({});
+    setShowManagerModal(true);
   };
 
   if (loading) {
@@ -229,7 +295,7 @@ export default function DepartmentDetailsPage() {
           <p className="text-gray-500">Department not found</p>
           <button
             onClick={() => router.push("/departments")}
-            className="mt-4 text-red-600 hover:underline"
+            className="mt-4 text-red-600 hover:underline cursor-pointer"
           >
             Back to Departments
           </button>
@@ -290,7 +356,6 @@ export default function DepartmentDetailsPage() {
           box-shadow: 0 8px 25px -8px rgba(0,0,0,0.1);
         }
         
-        /* ─── Softer placeholder color ─── */
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -305,7 +370,6 @@ export default function DepartmentDetailsPage() {
           opacity: 0.9;
         }
 
-        /* ─── Manager Card Styles ─── */
         .manager-card {
           background: linear-gradient(135deg, #fef2f2 0%, #ffffff 100%);
           border: 1px solid rgba(220,38,38,0.08);
@@ -345,22 +409,50 @@ export default function DepartmentDetailsPage() {
           box-shadow: 0 4px 16px rgba(220,38,38,0.25);
           flex-shrink: 0;
         }
-        .manager-status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          display: inline-block;
-          margin-right: 6px;
+        .modal-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px 24px;
         }
-        .manager-status-dot.active {
-          background: #22c55e;
-          box-shadow: 0 0 8px rgba(34,197,94,0.4);
+        .modal-grid-2 .full-width {
+          grid-column: 1 / -1;
         }
-        .manager-status-dot.inactive {
-          background: #9ca3af;
+        .input-icon-wrapper {
+          position: relative;
+        }
+        .input-icon-wrapper .icon {
+          position: absolute;
+          left: 14px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #9ca3af;
+          pointer-events: none;
+          font-size: 16px;
+          line-height: 1;
+        }
+        .input-icon-wrapper input,
+        .input-icon-wrapper textarea,
+        .input-icon-wrapper select {
+          padding-left: 42px;
+        }
+        .input-icon-wrapper textarea {
+          padding-top: 12px;
+          padding-bottom: 12px;
+          resize: vertical;
+          min-height: 52px;
+        }
+        .input-icon-wrapper .icon-top {
+          top: 16px;
+          transform: none;
+        }
+        .input-icon-wrapper select {
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 14px center;
+          padding-right: 40px;
         }
       `}</style>
-
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-20 left-10 w-72 h-72 bg-red-100/30 rounded-full blur-3xl animate-pulse"></div>
@@ -371,7 +463,7 @@ export default function DepartmentDetailsPage() {
           {/* Back Button */}
           <button
             onClick={() => router.push("/departments")}
-            className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition-colors mb-6 group fade-in-up"
+            className="flex items-center gap-2 text-gray-500 hover:text-red-600 transition-colors mb-6 group fade-in-up cursor-pointer"
           >
             <svg
               width="20"
@@ -387,7 +479,7 @@ export default function DepartmentDetailsPage() {
             <span>Back to Departments</span>
           </button>
 
-          {/* Header Section */}
+          {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 fade-in-up">
             <div className="flex items-center gap-4">
               <div className="relative">
@@ -425,21 +517,21 @@ export default function DepartmentDetailsPage() {
               {!department.is_active && (
                 <button
                   onClick={() => setShowRestoreConfirm(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition"
+                  className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 font-semibold transition cursor-pointer"
                 >
                   Restore
                 </button>
               )}
               <button
                 onClick={openEditModal}
-                className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold transition"
+                className="px-4 py-2 bg-amber-600 text-white rounded-xl hover:bg-amber-700 font-semibold transition cursor-pointer"
               >
                 Edit
               </button>
               {department.is_active && (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold transition"
+                  className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold transition cursor-pointer"
                 >
                   Deactivate
                 </button>
@@ -447,7 +539,7 @@ export default function DepartmentDetailsPage() {
             </div>
           </div>
 
-          {/* Department Info Cards */}
+          {/* Info Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 fade-in-up">
             <div className="info-card p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -483,6 +575,14 @@ export default function DepartmentDetailsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wide">
+                    Client ID
+                  </p>
+                  <p className="text-sm font-mono text-gray-700 mt-1">
+                    {department.client_id}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide">
                     Description
                   </p>
                   <p className="text-sm text-gray-700 mt-1">
@@ -492,7 +592,7 @@ export default function DepartmentDetailsPage() {
               </div>
             </div>
 
-            {/* ─── ENHANCED: Manager Section with Card ─── */}
+            {/* Manager Card */}
             <div className="info-card p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                 <svg
@@ -520,18 +620,21 @@ export default function DepartmentDetailsPage() {
                           {manager.full_name}
                         </h4>
                         <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                            manager.is_active !== false
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-500"
-                          }`}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${manager.is_active !== false ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
                         >
                           {manager.is_active !== false ? "Active" : "Inactive"}
                         </span>
                       </div>
                       <div className="space-y-1.5 mt-2">
                         <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
                             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                             <polyline points="22,6 12,13 2,6" />
                           </svg>
@@ -539,7 +642,14 @@ export default function DepartmentDetailsPage() {
                         </div>
                         {manager.phone && (
                           <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z" />
                             </svg>
                             <span>{manager.phone}</span>
@@ -547,7 +657,14 @@ export default function DepartmentDetailsPage() {
                         )}
                         {manager.role && (
                           <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" />
                             </svg>
                             <span>{manager.role}</span>
@@ -558,10 +675,17 @@ export default function DepartmentDetailsPage() {
                   </div>
                   <div className="flex gap-3 mt-4 pt-3 border-t border-gray-100">
                     <button
-                      onClick={() => setShowManagerModal(true)}
-                      className="text-sm text-amber-600 hover:text-amber-700 font-semibold flex items-center gap-1 transition"
+                      onClick={openManagerModal}
+                      className="text-sm text-amber-600 hover:text-amber-700 font-semibold flex items-center gap-1 transition cursor-pointer"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
                         <path d="M17 3l4 4-7 7H10v-4l7-7z" />
                       </svg>
                       Change Manager
@@ -569,9 +693,16 @@ export default function DepartmentDetailsPage() {
                     <button
                       onClick={handleRemoveManager}
                       disabled={submitting}
-                      className="text-sm text-red-600 hover:text-red-700 font-semibold flex items-center gap-1 transition"
+                      className="text-sm text-red-600 hover:text-red-700 font-semibold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
@@ -582,7 +713,14 @@ export default function DepartmentDetailsPage() {
               ) : (
                 <div className="text-center py-6">
                   <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5">
+                    <svg
+                      width="28"
+                      height="28"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#9ca3af"
+                      strokeWidth="1.5"
+                    >
                       <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
                       <circle cx="12" cy="7" r="4" />
                     </svg>
@@ -591,8 +729,8 @@ export default function DepartmentDetailsPage() {
                     No manager assigned to this department
                   </p>
                   <button
-                    onClick={() => setShowManagerModal(true)}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition"
+                    onClick={openManagerModal}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition cursor-pointer"
                   >
                     + Assign Manager
                   </button>
@@ -602,8 +740,7 @@ export default function DepartmentDetailsPage() {
           </div>
         </div>
       </div>
-
-      {/* Edit Department Modal */}
+      // Edit Department Modal
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -619,7 +756,7 @@ export default function DepartmentDetailsPage() {
                 </div>
                 <button
                   onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
                   <svg
                     width="20"
@@ -634,66 +771,121 @@ export default function DepartmentDetailsPage() {
                   </svg>
                 </button>
               </div>
+
               <form onSubmit={handleUpdateDepartment} className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Department Name <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={editFormData.name}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, name: e.target.value })
-                    }
-                    required
-                    placeholder="Enter department name"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy placeholder-gray-400"
-                  />
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏢</span>
+                    <input
+                      type="text"
+                      value={editFormData.name}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          name: e.target.value,
+                        });
+                        if (editErrors.name)
+                          setEditErrors({ ...editErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-500/40"
+                      }`}
+                      placeholder="Enter department name"
+                    />
+                  </div>
+                  {editErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.name}
+                    </p>
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Department Code <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={editFormData.code}
-                    onChange={(e) =>
-                      setEditFormData({ ...editFormData, code: e.target.value })
-                    }
-                    required
-                    placeholder="Enter department code"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all input-fancy placeholder-gray-400"
-                  />
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔢</span>
+                    <input
+                      type="text"
+                      value={editFormData.code}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          code: e.target.value.toUpperCase(),
+                        });
+                        if (editErrors.code)
+                          setEditErrors({ ...editErrors, code: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.code
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-500/40"
+                      }`}
+                      placeholder="Enter department code"
+                    />
+                  </div>
+                  {editErrors.code && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.code}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                    Uppercase letters, numbers, and underscores only
+                  </p>
                 </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Description
                   </label>
-                  <textarea
-                    value={editFormData.description}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        description: e.target.value,
-                      })
-                    }
-                    rows={3}
-                    placeholder="Enter department description"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all resize-none input-fancy placeholder-gray-400"
-                  />
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={editFormData.description}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          description: e.target.value,
+                        });
+                        if (editErrors.description)
+                          setEditErrors({ ...editErrors, description: "" });
+                      }}
+                      rows={3}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-500/40"
+                      }`}
+                      placeholder="Enter department description"
+                    />
+                  </div>
+                  {editErrors.description && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.description}
+                    </p>
+                  )}
                 </div>
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md cursor-pointer"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -707,10 +899,12 @@ export default function DepartmentDetailsPage() {
           </div>
         </div>
       )}
-
-      {/* Assign Manager Modal */}
+      // Assign Manager Modal
       {showManagerModal && (
-        <div className="modal-overlay" onClick={() => setShowManagerModal(false)}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowManagerModal(false)}
+        >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex justify-between items-start mb-5">
@@ -724,7 +918,7 @@ export default function DepartmentDetailsPage() {
                 </div>
                 <button
                   onClick={() => setShowManagerModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
                   <svg
                     width="20"
@@ -739,42 +933,81 @@ export default function DepartmentDetailsPage() {
                   </svg>
                 </button>
               </div>
+
               <form onSubmit={handleAssignManager} className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Select Manager <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={selectedManagerId}
-                    onChange={(e) => setSelectedManagerId(e.target.value)}
-                    required
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all bg-white text-gray-800"
-                  >
-                    <option value="" className="text-gray-400">-- Select a manager --</option>
-                    {managers
-                      .filter((m) => m.is_active !== false)
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.full_name} ({m.email})
-                        </option>
-                      ))}
-                  </select>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">👤</span>
+                    <select
+                      value={selectedManagerId}
+                      onChange={(e) => {
+                        setSelectedManagerId(e.target.value);
+                        if (managerErrors.manager_id)
+                          setManagerErrors({
+                            ...managerErrors,
+                            manager_id: "",
+                          });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                        managerErrors.manager_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-500/40"
+                      }`}
+                    >
+                      <option value="">-- Select a manager --</option>
+                      {managers
+                        .filter((m) => m.is_active !== false)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name} ({m.email})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  {managerErrors.manager_id && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {managerErrors.manager_id}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-1">
                     Only active managers are shown
                   </p>
                 </div>
+
+                {manager && (
+                  <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-200">
+                    <p className="text-sm text-yellow-700">
+                      Current manager will be replaced.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => setShowManagerModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
+                  {manager && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveManager}
+                      disabled={submitting}
+                      className="px-4 py-2.5 bg-red-100 text-red-700 rounded-xl hover:bg-red-200 transition-all font-semibold text-sm cursor-pointer disabled:opacity-50"
+                    >
+                      {submitting ? "Removing..." : "Remove Manager"}
+                    </button>
+                  )}
                   <button
                     type="submit"
-                    disabled={submitting || !selectedManagerId}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md"
+                    disabled={submitting}
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold shadow-md cursor-pointer"
                   >
                     {submitting ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -788,11 +1021,16 @@ export default function DepartmentDetailsPage() {
           </div>
         </div>
       )}
-
-      {/* Delete Confirmation Modal */}
+      // Delete Confirmation Modal
       {showDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
                 <svg
@@ -821,14 +1059,14 @@ export default function DepartmentDetailsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteDepartment}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold cursor-pointer"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -841,11 +1079,16 @@ export default function DepartmentDetailsPage() {
           </div>
         </div>
       )}
-
-      {/* Restore Confirmation Modal */}
+      // Restore Confirmation Modal
       {showRestoreConfirm && (
-        <div className="modal-overlay" onClick={() => setShowRestoreConfirm(false)}>
-          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowRestoreConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
                 <svg
@@ -874,14 +1117,14 @@ export default function DepartmentDetailsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowRestoreConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold"
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleRestoreDepartment}
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 font-semibold cursor-pointer"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

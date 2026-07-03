@@ -7,7 +7,6 @@ import toast from "react-hot-toast";
 import Image from "next/image";
 import api from "@/app/lib/api";
 
-// ─── Service Code to Menu Item Mapping ──────────────────────────────────────
 interface ServiceMenuItem {
   code: string;
   name: string;
@@ -22,10 +21,9 @@ interface SubMenuItem {
   icon: ReactNode;
 }
 
-// All possible service-based menu items
 const serviceMenuMap: ServiceMenuItem[] = [
   {
-    code: "USERS",
+    code: "USER_MANAGEMENT",
     name: "Users",
     path: "/users",
     icon: (
@@ -47,7 +45,7 @@ const serviceMenuMap: ServiceMenuItem[] = [
     ),
   },
   {
-    code: "DEPARTMENTS",
+    code: "DEPARTMENT_MANAGEMENT",
     name: "Departments",
     path: "/departments",
     icon: (
@@ -256,7 +254,6 @@ const serviceMenuMap: ServiceMenuItem[] = [
   },
 ];
 
-// ─── Icon Helpers ────────────────────────────────────────────────────────────
 const getDashboardIcon = () => (
   <svg
     width="18"
@@ -290,13 +287,6 @@ const getSettingsIcon = () => (
     <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
   </svg>
 );
-
-// ─── Platform Admin Only Menu Items ──────────────────────────────────────────
-interface PlatformMenuItem {
-  name: string;
-  path: string;
-  icon: ReactNode;
-}
 
 const platformAdminMenuItems: PlatformMenuItem[] = [
   {
@@ -380,7 +370,12 @@ const platformAdminMenuItems: PlatformMenuItem[] = [
   },
 ];
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
+interface PlatformMenuItem {
+  name: string;
+  path: string;
+  icon: ReactNode;
+}
+
 const getUserRole = () => {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem("access_token");
@@ -393,7 +388,6 @@ const getUserRole = () => {
   }
 };
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
 const getClientIdFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -413,20 +407,11 @@ interface MenuItem {
   submenu?: SubMenuItem[];
 }
 
-// ─── User Profile Interface ──────────────────────────────────────────────────
-interface UserProfile {
-  id: string;
-  full_name: string;
-  email: string;
-  phone?: string;
-  role: string;
-  client_id?: string;
-}
-
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(
     {},
@@ -438,83 +423,39 @@ export default function Sidebar() {
   const [dynamicMenuItems, setDynamicMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ─── Toggle Submenu ──────────────────────────────────────────────────────────
   const toggleSubmenu = (menuName: string) => {
-    setExpandedMenus((prev) => ({
-      ...prev,
-      [menuName]: !prev[menuName],
-    }));
+    setExpandedMenus((prev) => ({ ...prev, [menuName]: !prev[menuName] }));
   };
 
-  // ─── Fetch User Profile ─────────────────────────────────────────────────────
-  const fetchUserProfile = async () => {
+  const toggleMobile = () => setMobileOpen(!mobileOpen);
+  const closeMobile = () => setMobileOpen(false);
+
+  useEffect(() => {
+    closeMobile();
+  }, [pathname]);
+
+  const fetchUserProfile = () => {
     try {
       const token = localStorage.getItem("access_token");
       if (!token) return;
-
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        const role = payload.role || null;
-        setUserRole(role);
-
-        const name =
-          payload.full_name || payload.name || payload.email || "User";
-        setUserName(name);
-        setUserEmail(payload.email || "");
-        setUserInitials(name.charAt(0).toUpperCase());
-      } catch {
-        // JWT decode failed
-      }
-
-      try {
-        let profileData: UserProfile | null = null;
-        const role = getUserRole();
-
-        if (role === "ADMIN") {
-          try {
-            const response = await api.get("/platform-admins/me");
-            profileData = response.data;
-          } catch {
-            // Endpoint might not exist
-          }
-        } else if (role === "CLIENT_ADMIN") {
-          try {
-            const response = await api.get("/client/me");
-            profileData = response.data;
-          } catch {
-            // Fallback
-          }
-        } else {
-          try {
-            const response = await api.get("/users/me");
-            profileData = response.data;
-          } catch {
-            // Fallback
-          }
-        }
-
-        if (profileData) {
-          const name = profileData.full_name || profileData.email || "User";
-          setUserName(name);
-          setUserEmail(profileData.email || "");
-          setUserInitials(name.charAt(0).toUpperCase());
-          setUserRole(profileData.role || userRole);
-        }
-      } catch (error) {
-        console.error("Error fetching user profile:", error);
-      }
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      setUserRole(payload.role || null);
+      const name = payload.full_name || payload.name || payload.email || "User";
+      setUserName(name);
+      setUserEmail(payload.email || "");
+      setUserInitials(name.charAt(0).toUpperCase());
     } catch (error) {
-      console.error("Error in fetchUserProfile:", error);
+      setUserName("User");
+      setUserEmail("");
+      setUserInitials("U");
     }
   };
 
-  // ─── Fetch services and build dynamic menu ─────────────────────────────────
   const fetchServicesAndBuildMenu = async () => {
     try {
       const role = getUserRole();
       setUserRole(role);
 
-      // ─── Platform Admin ──────────────────────────────────────────────────────
       if (role === "ADMIN") {
         const allItems: MenuItem[] = [
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
@@ -536,7 +477,6 @@ export default function Sidebar() {
         return;
       }
 
-      // ─── Client Admin ────────────────────────────────────────────────────────
       if (role === "CLIENT_ADMIN") {
         const clientId = getClientIdFromToken();
         if (!clientId) {
@@ -549,10 +489,7 @@ export default function Sidebar() {
           const permResponse = await api.get("/users/me/services");
           const perms = permResponse.data || [];
           perms.forEach((p: any) => {
-            // ✅ FIX: Use 'code' instead of 'service_code'
-            userPermissions[p.code] = {
-              can_read: p.can_read || false,
-            };
+            userPermissions[p.code] = { can_read: p.can_read || false };
           });
         } catch (error) {
           console.warn("Could not fetch user permissions");
@@ -569,63 +506,7 @@ export default function Sidebar() {
 
         purchasedServices.forEach((service: { code: string; name: string }) => {
           const menuItem = serviceMenuMap.find((s) => s.code === service.code);
-          if (menuItem) {
-            const hasReadPermission =
-              userPermissions[service.code]?.can_read !== false;
-            if (hasReadPermission) {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        });
-
-        menuItems.push({
-          name: "Settings",
-          path: "/settings",
-          icon: getSettingsIcon(),
-        });
-
-        setDynamicMenuItems(menuItems);
-        setLoading(false);
-        return;
-      }
-
-      // ─── Regular User ──────────────────────────────────────────────────────
-      if (role === "USER") {
-        let userPermissions: Record<string, { can_read: boolean }> = {};
-        try {
-          const permResponse = await api.get("/users/me/services");
-          const perms = permResponse.data || [];
-          console.log("🔍 User Permissions Response:", perms);
-          perms.forEach((p: any) => {
-            // ✅ FIX: Use 'code' instead of 'service_code'
-            userPermissions[p.code] = {
-              can_read: p.can_read || false,
-            };
-          });
-          console.log("🔍 User Permissions Map:", userPermissions);
-        } catch (error) {
-          console.warn("Could not fetch user permissions");
-        }
-
-        const menuItems: MenuItem[] = [
-          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-        ];
-
-        // ─── Show only services where user has can_read ─────────────────────
-        serviceMenuMap.forEach((menuItem) => {
-          const hasReadPermission =
-            userPermissions[menuItem.code]?.can_read === true;
-          console.log(`🔍 ${menuItem.code}: can_read = ${hasReadPermission}`);
-          if (hasReadPermission) {
+          if (menuItem && userPermissions[service.code]?.can_read !== false) {
             menuItems.push({
               name: menuItem.name,
               path: menuItem.path,
@@ -639,13 +520,103 @@ export default function Sidebar() {
           }
         });
 
-        console.log("🔍 Final Menu Items:", menuItems);
+        menuItems.push({
+          name: "Settings",
+          path: "/settings",
+          icon: getSettingsIcon(),
+        });
         setDynamicMenuItems(menuItems);
         setLoading(false);
         return;
       }
 
-      // ─── Fallback ──────────────────────────────────────────────────────────
+      if (role === "MANAGER") {
+        let userPermissions: Record<string, { can_read: boolean }> = {};
+        try {
+          const permResponse = await api.get("/users/me/services");
+          const perms = permResponse.data || [];
+          perms.forEach((p: any) => {
+            userPermissions[p.code] = { can_read: p.can_read || false };
+          });
+        } catch (error) {
+          console.warn("Could not fetch user permissions");
+        }
+
+        const menuItems: MenuItem[] = [
+          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
+        ];
+
+        const managerModules = [
+          "ASSET_MANAGEMENT",
+          "TRACKING",
+          "REPORTS",
+          "AUDITS",
+          "MAINTENANCE",
+        ];
+        serviceMenuMap.forEach((menuItem) => {
+          if (
+            managerModules.includes(menuItem.code) &&
+            userPermissions[menuItem.code]?.can_read !== false
+          ) {
+            menuItems.push({
+              name: menuItem.name,
+              path: menuItem.path,
+              icon: menuItem.icon,
+              submenu: menuItem.submenu?.map((sub) => ({
+                name: sub.name,
+                path: sub.path,
+                icon: sub.icon,
+              })),
+            });
+          }
+        });
+
+        menuItems.push({
+          name: "Settings",
+          path: "/settings",
+          icon: getSettingsIcon(),
+        });
+        setDynamicMenuItems(menuItems);
+        setLoading(false);
+        return;
+      }
+
+      if (role === "USER") {
+        let userPermissions: Record<string, { can_read: boolean }> = {};
+        try {
+          const permResponse = await api.get("/users/me/services");
+          const perms = permResponse.data || [];
+          perms.forEach((p: any) => {
+            userPermissions[p.code] = { can_read: p.can_read || false };
+          });
+        } catch (error) {
+          console.warn("Could not fetch user permissions");
+        }
+
+        const menuItems: MenuItem[] = [
+          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
+        ];
+
+        serviceMenuMap.forEach((menuItem) => {
+          if (userPermissions[menuItem.code]?.can_read === true) {
+            menuItems.push({
+              name: menuItem.name,
+              path: menuItem.path,
+              icon: menuItem.icon,
+              submenu: menuItem.submenu?.map((sub) => ({
+                name: sub.name,
+                path: sub.path,
+                icon: sub.icon,
+              })),
+            });
+          }
+        });
+
+        setDynamicMenuItems(menuItems);
+        setLoading(false);
+        return;
+      }
+
       setDynamicMenuItems([
         { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
       ]);
@@ -659,7 +630,6 @@ export default function Sidebar() {
     }
   };
 
-  // ─── Initialize sidebar on mount ───────────────────────────────────────────
   useEffect(() => {
     fetchUserProfile();
     fetchServicesAndBuildMenu();
@@ -699,41 +669,25 @@ export default function Sidebar() {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.5; transform: scale(1.2); }
         }
-        @keyframes glow-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.1); }
-          50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .sidebar-item-enter {
-          animation: slideIn 0.2s ease forwards;
-        }
-        .submenu-enter {
-          animation: submenuSlide 0.25s ease forwards;
-        }
+        .sidebar-item-enter { animation: slideIn 0.2s ease forwards; }
+        .submenu-enter { animation: submenuSlide 0.25s ease forwards; }
+
         .sidebar-root {
           background: #ffffff;
           border-radius: 16px;
           margin: 8px;
           box-shadow: 0 8px 32px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03);
-          transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-                      transform 0.4s ease,
-                      box-shadow 0.4s ease;
+          transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s ease, box-shadow 0.4s ease;
           position: sticky;
           top: 8px;
           height: calc(100vh - 16px);
           overflow: hidden;
           z-index: 50;
           border: 1px solid rgba(0,0,0,0.04);
-          transform: perspective(800px) rotateY(0.5deg);
-          transform-style: preserve-3d;
+          display: flex;
+          flex-direction: column;
         }
-        .sidebar-root:hover {
-          transform: perspective(800px) rotateY(1deg);
-          box-shadow: 0 8px 40px rgba(0,0,0,0.08), 0 2px 12px rgba(0,0,0,0.04);
-        }
+        .sidebar-root:hover { box-shadow: 0 8px 40px rgba(0,0,0,0.08), 0 2px 12px rgba(0,0,0,0.04); }
         .sidebar-root::before {
           content: '';
           position: absolute;
@@ -742,6 +696,7 @@ export default function Sidebar() {
           pointer-events: none;
           border-radius: 16px;
         }
+
         .nav-item {
           position: relative;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -750,12 +705,8 @@ export default function Sidebar() {
           margin-bottom: 2px;
           transform: translateX(0);
         }
-        .nav-item:hover {
-          transform: translateX(4px);
-        }
-        .nav-item-active {
-          transform: translateX(0);
-        }
+        .nav-item:hover { transform: translateX(4px); }
+        .nav-item-active { transform: translateX(0); }
         .nav-item::before {
           content: '';
           position: absolute;
@@ -766,10 +717,7 @@ export default function Sidebar() {
           border-radius: 10px;
           transform: scale(0.95);
         }
-        .nav-item:hover::before {
-          opacity: 1;
-          transform: scale(1);
-        }
+        .nav-item:hover::before { opacity: 1; transform: scale(1); }
         .nav-item-active {
           background: rgba(220,38,38,0.08) !important;
           box-shadow: 0 2px 12px rgba(220,38,38,0.06);
@@ -789,53 +737,17 @@ export default function Sidebar() {
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           color: #dc2626;
         }
-        .nav-item:hover .nav-icon {
-          transform: scale(1.1) rotate(-2deg);
-          filter: drop-shadow(0 2px 4px rgba(220,38,38,0.15));
-        }
-        .nav-item-active .nav-icon {
-          color: #dc2626;
-          transform: scale(1.05);
-        }
-        .nav-label {
-          color: #1f2937;
-          font-weight: 650;
-          font-size: 0.85rem;
-          transition: color 0.2s ease;
-        }
-        .nav-item:hover .nav-label {
-          color: #dc2626;
-        }
-        .nav-item-active .nav-label {
-          color: #dc2626;
-          font-weight: 600;
-        }
-        .submenu-item {
-          padding-left: 20px !important;
-          transition: all 0.2s ease;
-        }
-        .submenu-item .nav-label {
-          font-size: 0.8rem;
-          font-weight: 500;
-        }
-        .submenu-item-active {
-          background: rgba(220,38,38,0.08) !important;
-        }
-        .submenu-item-active .nav-label {
-          color: #dc2626 !important;
-          font-weight: 600 !important;
-        }
-        .submenu-dot {
-          width: 4px;
-          height: 4px;
-          border-radius: 50%;
-          background: #9ca3af;
-          transition: all 0.2s ease;
-        }
-        .submenu-item-active .submenu-dot {
-          background: #dc2626;
-          box-shadow: 0 0 8px rgba(220,38,38,0.3);
-        }
+        .nav-item:hover .nav-icon { transform: scale(1.1) rotate(-2deg); filter: drop-shadow(0 2px 4px rgba(220,38,38,0.15)); }
+        .nav-item-active .nav-icon { color: #dc2626; transform: scale(1.05); }
+        .nav-label { color: #1f2937; font-weight: 650; font-size: 0.85rem; transition: color 0.2s ease; }
+        .nav-item:hover .nav-label { color: #dc2626; }
+        .nav-item-active .nav-label { color: #dc2626; font-weight: 600; }
+        .submenu-item { padding-left: 20px !important; transition: all 0.2s ease; }
+        .submenu-item .nav-label { font-size: 0.8rem; font-weight: 500; }
+        .submenu-item-active { background: rgba(220,38,38,0.08) !important; }
+        .submenu-item-active .nav-label { color: #dc2626 !important; font-weight: 600 !important; }
+        .submenu-dot { width: 4px; height: 4px; border-radius: 50%; background: #9ca3af; transition: all 0.2s ease; }
+        .submenu-item-active .submenu-dot { background: #dc2626; box-shadow: 0 0 8px rgba(220,38,38,0.3); }
         .tooltip {
           position: absolute;
           left: calc(100% + 12px);
@@ -863,95 +775,67 @@ export default function Sidebar() {
           border: 5px solid transparent;
           border-right-color: #1f2937;
         }
-        .nav-item:hover .tooltip {
-          opacity: 1;
-          transform: translateY(-50%) scale(1);
-        }
-        .logo-glow {
-          animation: glow-pulse 3s ease-in-out infinite;
-          border-radius: 12px;
-        }
-        .logo-container {
-          transition: transform 0.3s ease;
-        }
-        .logo-container:hover {
-          transform: scale(1.02) rotate(-2deg);
-        }
+        .nav-item:hover .tooltip { opacity: 1; transform: translateY(-50%) scale(1); }
+
+        .logo-glow { animation: glow-pulse 3s ease-in-out infinite; border-radius: 12px; }
+        @keyframes glow-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.1); } 50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); } }
+        .logo-container { transition: transform 0.3s ease; }
+        .logo-container:hover { transform: scale(1.02) rotate(-2deg); }
         .collapse-btn {
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           border-radius: 8px;
           padding: 4px;
           color: #9ca3af;
         }
-        .collapse-btn:hover {
-          background: rgba(220,38,38,0.06);
-          color: #dc2626;
-          transform: rotate(180deg);
-        }
-        .online-dot {
-          animation: pulse-dot 2s ease-in-out infinite;
-        }
+        .collapse-btn:hover { background: rgba(220,38,38,0.06); color: #dc2626; transform: rotate(180deg); }
+        .online-dot { animation: pulse-dot 2s ease-in-out infinite; }
         .divider {
           height: 1px;
-          background: linear-gradient(90deg, 
-            transparent, 
-            rgba(0,0,0,0.05) 20%, 
-            rgba(0,0,0,0.05) 80%, 
-            transparent
-          );
+          background: linear-gradient(90deg, transparent, rgba(0,0,0,0.05) 20%, rgba(0,0,0,0.05) 80%, transparent);
           margin: 6px 16px;
+          flex-shrink: 0;
         }
-        .user-card {
-          background: rgba(255,255,255,0.8);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          border: 1px solid rgba(220,38,38,0.06);
-          border-radius: 12px;
-          transition: all 0.3s ease;
-        }
-        .user-card:hover {
-          background: rgba(255,255,255,0.95);
-          box-shadow: 0 4px 12px rgba(220,38,38,0.06);
-          border-color: rgba(220,38,38,0.12);
-        }
-        .logout-btn {
-          transition: all 0.25s ease;
-          border-radius: 8px;
-          color: #dc2626;
-        }
-        .logout-btn:hover {
-          background: rgba(220,38,38,0.05);
-          color: #dc2626;
-        }
-        .logout-btn:hover .logout-icon {
-          color: #dc2626;
-        }
-        .logout-icon {
-          transition: color 0.2s ease;
-          color: #dc2626;
-        }
+        .logout-btn { transition: all 0.25s ease; border-radius: 8px; color: #dc2626; }
+        .logout-btn:hover { background: rgba(220,38,38,0.05); color: #dc2626; }
+        .logout-btn:hover .logout-icon { color: #dc2626; }
+        .logout-icon { transition: color 0.2s ease; color: #dc2626; }
+        
+        /* ─── SCROLLBAR STYLES ─── */
         .nav-scroll {
+          flex: 1;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding: 8px 12px;
           scrollbar-width: thin;
-          scrollbar-color: #e5e7eb transparent;
+          scrollbar-color: #d91515 #f3f4f6;
         }
+        
         .nav-scroll::-webkit-scrollbar {
-          width: 4px;
+          width: 6px;
         }
+        
+        .nav-scroll::-webkit-scrollbar-button {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+        
         .nav-scroll::-webkit-scrollbar-track {
-          background: transparent;
-          margin: 8px 0;
+          background: #f3f4f6;
+          border-radius: 10px;
+          margin: 4px 0;
         }
+        
         .nav-scroll::-webkit-scrollbar-thumb {
-          background: #e5e7eb;
-          border-radius: 20px;
-          border: 2px solid transparent;
-          background-clip: padding-box;
+          background: #22c55e;
+          border-radius: 10px;
+          min-height: 40px;
         }
+        
         .nav-scroll::-webkit-scrollbar-thumb:hover {
-          background: #d1d5db;
+          background: #16a34a;
         }
 
-        /* ─── Powered By Styles ─── */
         .powered-by {
           padding: 2px 10px 5px;
           border-top: 1px solid rgba(0,0,0,0.04);
@@ -961,48 +845,156 @@ export default function Sidebar() {
           justify-content: center;
           gap: 6px;
           transition: all 0.3s ease;
+          flex-shrink: 0;
         }
-        .powered-by:hover {
-          background: rgba(220,38,38,0.03);
-          border-radius: 8px;
-          border-color: rgba(220,38,38,0.08);
-        }
-        .powered-by-text {
-          margin-top: 7px;
-          font-size: 10px;
-          font-weight: 700;
-          color: #000000;
-          letter-spacing: 0.5px;
-          text-transform: uppercase;
-        }
-        .powered-by-logo {
-          transition: opacity 0.3s ease, transform 0.3s ease;
-        }
-        .powered-by:hover .powered-by-logo {
-          opacity: 0.9;
-          transform: scale(1.02);
-        }
-        .powered-by-collapsed {
-          padding: 8px 0;
-          margin: 0 4px 4px;
-          display: flex;
-          flex-direction: column;
+        .powered-by:hover { background: rgba(220,38,38,0.03); border-radius: 8px; border-color: rgba(220,38,38,0.08); }
+        .powered-by-text { margin-top: 7px; font-size: 10px; font-weight: 700; color: #000000; letter-spacing: 0.5px; text-transform: uppercase; }
+        .powered-by-logo { transition: opacity 0.3s ease, transform 0.3s ease; }
+        .powered-by:hover .powered-by-logo { opacity: 0.9; transform: scale(1.02); }
+        .powered-by-collapsed { padding: 8px 0; margin: 0 4px 4px; display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0; }
+        .powered-by-collapsed .powered-by-text { font-size: 7px; }
+        .powered-by-collapsed .powered-by-logo { width: 20px; height: 20px; }
+
+        /* ─── MOBILE STYLES ─── */
+        .mobile-toggle-btn {
+          display: none;
+          position: fixed;
+          top: 16px;
+          left: 16px;
+          z-index: 1001;
+          width: 40px;
+          height: 40px;
+          background: #dc2626;
+          border: none;
+          border-radius: 10px;
           align-items: center;
-          gap: 3px;
+          justify-content: center;
+          box-shadow: 0 2px 12px rgba(220,38,38,0.3);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          color: white;
         }
-        .powered-by-collapsed .powered-by-text {
-          font-size: 7px;
+        .mobile-toggle-btn:hover { background: #b91c1c; transform: scale(1.05); }
+        .mobile-toggle-btn svg { stroke: white; }
+
+        .sidebar-overlay {
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          z-index: 999;
+          backdrop-filter: blur(2px);
+          animation: fadeIn 0.2s ease;
         }
-        .powered-by-collapsed .powered-by-logo {
-          width: 20px;
-          height: 20px;
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .sidebar-close-btn {
+          display: none;
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          z-index: 1002;
+          width: 32px;
+          height: 32px;
+          background: rgba(255,255,255,0.95);
+          border: none;
+          border-radius: 50%;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          color: #1f2937;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .sidebar-close-btn:hover {
+          background: white;
+          color: #dc2626;
+          transform: rotate(90deg);
+        }
+        .sidebar-close-btn svg { stroke: currentColor; }
+
+        @media (max-width: 1024px) {
+          .mobile-toggle-btn { display: flex !important; }
+          
+          .sidebar-root {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            height: 100vh !important;
+            width: 280px !important;
+            z-index: 1000 !important;
+            transform: translateX(-100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2) !important;
+            background: #ffffff !important;
+          }
+          .sidebar-root.mobile-open { transform: translateX(0); }
+          
+          .sidebar-overlay.mobile-open { display: block; }
+          .sidebar-close-btn.mobile-open { display: flex !important; }
+        }
+
+        @media (min-width: 1025px) {
+          .mobile-toggle-btn,
+          .sidebar-overlay,
+          .sidebar-close-btn { display: none !important; }
         }
       `}</style>
 
+      {/* ─── Mobile Toggle Button ─── */}
+      <button
+        className="mobile-toggle-btn"
+        onClick={toggleMobile}
+        aria-label={mobileOpen ? "Close sidebar" : "Open sidebar"}
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        >
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </button>
+
+      {/* ─── Mobile Overlay ─── */}
+      <div
+        className={`sidebar-overlay ${mobileOpen ? "mobile-open" : ""}`}
+        onClick={closeMobile}
+      />
+
+      {/* ─── Sidebar ─── */}
       <aside
-        className="sidebar-root flex flex-col select-none"
+        className={`sidebar-root ${mobileOpen ? "mobile-open" : ""}`}
         style={{ width: collapsed ? "72px" : "240px" }}
       >
+        {/* ─── Close Button ─── */}
+        <button
+          className={`sidebar-close-btn ${mobileOpen ? "mobile-open" : ""}`}
+          onClick={closeMobile}
+          aria-label="Close sidebar"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
         {/* Header / Logo */}
         <div
           className="flex items-center justify-between px-4 py-4 flex-shrink-0"
@@ -1038,18 +1030,13 @@ export default function Sidebar() {
                 <span className="text-black font-bold text-lg tracking-tight leading-none">
                   AssetIQ
                 </span>
-                <p
-                  className="text-[10px] mt-0.5 font-medium tracking-wider uppercase"
-                  style={{ color: "#9ca3af" }}
-                >
-                  Management Suite
-                </p>
               </div>
             )}
           </div>
+          {/* Collapse button - hidden on mobile */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="collapse-btn flex-shrink-0"
+            className="collapse-btn flex-shrink-0 hidden lg:flex"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <svg
@@ -1072,8 +1059,8 @@ export default function Sidebar() {
 
         <div className="divider" />
 
-        {/* Nav Items */}
-        <nav className="flex-1 px-3 py-2 overflow-y-auto nav-scroll">
+        {/* Nav Items with Scroll */}
+        <nav className="nav-scroll">
           {dynamicMenuItems.map((item, i) => {
             const isActive =
               pathname === item.path || pathname.startsWith(item.path + "/");
@@ -1088,7 +1075,6 @@ export default function Sidebar() {
 
             return (
               <div key={item.path || item.name}>
-                {/* Parent Menu Item */}
                 <div
                   className={`nav-item flex items-center gap-3 px-3 py-2.5 ${isActive || isSubmenuActive ? "nav-item-active" : ""}`}
                   style={{
@@ -1117,16 +1103,12 @@ export default function Sidebar() {
                   >
                     {item.icon}
                   </span>
-
                   {!collapsed && (
                     <span className="nav-label sidebar-item-enter truncate flex-1">
                       {item.name}
                     </span>
                   )}
-
                   {collapsed && <span className="tooltip">{item.name}</span>}
-
-                  {/* Chevron for submenu */}
                   {hasSubmenu && !collapsed && (
                     <span
                       className="flex-shrink-0 transition-transform duration-200"
@@ -1149,7 +1131,6 @@ export default function Sidebar() {
                       </svg>
                     </span>
                   )}
-
                   {(isActive || isSubmenuActive) && !collapsed && (
                     <span className="ml-auto flex-shrink-0">
                       <span
@@ -1165,8 +1146,7 @@ export default function Sidebar() {
                   )}
                 </div>
 
-                {/* Submenu Items */}
-                {hasSubmenu && !collapsed && isExpanded && (
+                {hasSubmenu && isExpanded && (
                   <div className="ml-4 mt-1 space-y-0.5 submenu-enter">
                     {item.submenu?.map((subItem) => {
                       const isSubActive =
@@ -1177,21 +1157,23 @@ export default function Sidebar() {
                           key={subItem.path}
                           href={subItem.path}
                           className={`nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm submenu-item ${isSubActive ? "submenu-item-active" : ""}`}
-                          style={{
-                            textDecoration: "none",
-                          }}
+                          style={{ textDecoration: "none" }}
                         >
                           <span className="submenu-dot flex-shrink-0" />
-                          <span
-                            className="nav-label sidebar-item-enter truncate"
-                            style={{
-                              color: isSubActive ? "#dc2626" : "#6b7280",
-                              fontWeight: isSubActive ? "600" : "500",
-                              fontSize: "0.8rem",
-                            }}
-                          >
-                            {subItem.name}
-                          </span>
+                          {!collapsed ? (
+                            <span
+                              className="nav-label sidebar-item-enter truncate"
+                              style={{
+                                color: isSubActive ? "#dc2626" : "#6b7280",
+                                fontWeight: isSubActive ? "600" : "500",
+                                fontSize: "0.8rem",
+                              }}
+                            >
+                              {subItem.name}
+                            </span>
+                          ) : (
+                            <span className="tooltip">{subItem.name}</span>
+                          )}
                           {isSubActive && !collapsed && (
                             <span className="ml-auto flex-shrink-0">
                               <span
@@ -1222,11 +1204,7 @@ export default function Sidebar() {
           <button
             onClick={handleLogout}
             className="logout-btn w-full flex items-center gap-3 px-3 py-1.5 cursor-pointer"
-            style={{
-              background: "none",
-              border: "none",
-              width: "100%",
-            }}
+            style={{ background: "none", border: "none", width: "100%" }}
           >
             <span className="logout-icon flex-shrink-0">
               <svg
@@ -1249,7 +1227,7 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {/* ─── Powered By Section ─── */}
+        {/* Powered By */}
         <div className={collapsed ? "powered-by-collapsed" : "powered-by"}>
           <span className="powered-by-text">Powered By</span>
           <div className="powered-by-logo">

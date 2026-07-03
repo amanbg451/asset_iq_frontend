@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
+import { z } from "zod";
 import api from "@/app/lib/api";
 
 interface User {
@@ -47,7 +48,71 @@ interface Permission {
 
 type ViewMode = "table" | "grid";
 
-// ─── Helper: Export to CSV ──────────────────────────────────────────────────
+// Zod Schemas for validation
+
+const phoneSchema = z
+  .string()
+  .regex(/^[0-9]{10}$/, "Phone must be exactly 10 digits");
+
+const userSchema = z.object({
+  full_name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  email: z.string().email("Invalid email address").min(1, "Email is required"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number"),
+  phone: phoneSchema,
+  employee_id: z.string().optional(),
+  department_id: z.string().min(1, "Department is required"),
+  client_id: z.string().optional(),
+});
+
+const editUserSchema = z.object({
+  full_name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  phone: phoneSchema.optional(),
+  department_id: z.string().min(1, "Department is required"),
+});
+
+const permissionSchema = z.object({
+  service_id: z.string(),
+  can_create: z.boolean().default(false),
+  can_read: z.boolean().default(false),
+  can_update: z.boolean().default(false),
+  can_delete: z.boolean().default(false),
+});
+
+const getClientIdFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.client_id || "";
+  } catch {
+    return "";
+  }
+};
+
+const getUserRoleFromToken = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+};
+
 const exportToCSV = (data: User[], filename: string) => {
   const headers = [
     "Full Name",
@@ -70,7 +135,9 @@ const exportToCSV = (data: User[], filename: string) => {
 
   let csv = headers.join(",") + "\n";
   rows.forEach((row) => {
-    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+    csv +=
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",") +
+      "\n";
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -82,7 +149,6 @@ const exportToCSV = (data: User[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Export to Excel ────────────────────────────────────────────────
 const exportToExcel = (data: User[], filename: string) => {
   const headers = [
     "Full Name",
@@ -106,7 +172,9 @@ const exportToExcel = (data: User[], filename: string) => {
   let csv = "\uFEFF";
   csv += headers.join(",") + "\n";
   rows.forEach((row) => {
-    csv += row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+    csv +=
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",") +
+      "\n";
   });
 
   const blob = new Blob([csv], { type: "application/vnd.ms-excel" });
@@ -118,44 +186,9 @@ const exportToExcel = (data: User[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
-const getClientIdFromToken = () => {
-  if (typeof window === "undefined") return "";
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.client_id || "";
-  } catch {
-    return "";
-  }
-};
-
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
-const getUserRoleFromToken = () => {
-  if (typeof window === "undefined") return "";
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.role || "";
-  } catch {
-    return "";
-  }
-};
-
-// ─── Helper: Validate Phone Number ──────────────────────────────────────────
-const validatePhoneNumber = (phone: string): boolean => {
-  // Remove all spaces, dashes, parentheses, and plus sign
-  const cleanPhone = phone.replace(/[\s\-()]/g, "");
-
-  // Check if phone is exactly 10 digits
-  const phoneRegex = /^[0-9]{10}$/;
-  return phoneRegex.test(cleanPhone);
-};
-
 export default function UsersPage() {
   const router = useRouter();
+
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [filteredDepartments, setFilteredDepartments] = useState<Department[]>(
@@ -185,16 +218,7 @@ export default function UsersPage() {
     left: number;
   } | null>(null);
   const [mounted, setMounted] = useState(false);
-
-  // ─── Password visibility states ────────────────────────────────────────────
   const [showPassword, setShowPassword] = useState(false);
-  const [showEditPassword, setShowEditPassword] = useState(false);
-
-  // ─── Phone validation error states ────────────────────────────────────────
-  const [phoneError, setPhoneError] = useState("");
-  const [editPhoneError, setEditPhoneError] = useState("");
-
-  const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [formData, setFormData] = useState({
     full_name: "",
     email: "",
@@ -204,28 +228,25 @@ export default function UsersPage() {
     department_id: "",
     client_id: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [editFormData, setEditFormData] = useState({
     full_name: "",
     phone: "",
     department_id: "",
   });
-
-  // ─── Permissions state ──────────────────────────────────────────────────────
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
   const [permissions, setPermissions] = useState<Record<string, Permission>>(
     {},
   );
-
-  // ─── Get user role ──────────────────────────────────────────────────────────
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
   const userRole = getUserRoleFromToken();
   const isPlatformAdmin = userRole === "ADMIN";
 
-  // ─── Set mounted state ─────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // ─── Position dropdown when it opens ──────────────────────────────────────
   useEffect(() => {
     if (showExportDropdown && exportButtonRef.current) {
       const rect = exportButtonRef.current.getBoundingClientRect();
@@ -238,7 +259,6 @@ export default function UsersPage() {
     }
   }, [showExportDropdown]);
 
-  // ─── Fetch users with deactivated support ────────────────────────────────
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
@@ -253,7 +273,6 @@ export default function UsersPage() {
     }
   }, [showDeactivated]);
 
-  // ─── Fetch departments ──────────────────────────────────────────────────────
   const fetchDepartments = async () => {
     try {
       setDepartmentsLoading(true);
@@ -266,7 +285,6 @@ export default function UsersPage() {
     }
   };
 
-  // ─── Fetch clients for dropdown ────────────────────────────────────────────
   const fetchClients = async () => {
     try {
       setFetchingClients(true);
@@ -279,7 +297,6 @@ export default function UsersPage() {
     }
   };
 
-  // ─── Fetch subscribed services for permissions ─────────────────────────────
   const fetchSubscribedServices = async () => {
     try {
       const clientId = getClientIdFromToken() || formData.client_id;
@@ -309,85 +326,7 @@ export default function UsersPage() {
     }
   };
 
-  // ─── Check licence limit before creating user ─────────────────────────────
-  const checkLicenceLimit = async (): Promise<boolean> => {
-    try {
-      const clientId = getClientIdFromToken();
-      const isClientAdmin = getUserRoleFromToken() === "CLIENT_ADMIN";
-
-      // For Platform Admin with manual client selection
-      if (!clientId) {
-        if (formData.client_id) {
-          try {
-            const subRes = await api.get(
-              `/clients/${formData.client_id}/subscriptions`,
-            );
-            const totalLicences = subRes.data?.licence_count || 0;
-            const usedLicences = subRes.data?.used_licences || 0;
-
-            if (usedLicences >= totalLicences && totalLicences > 0) {
-              toast.error(
-                `Licence limit reached (${totalLicences}/${totalLicences}). Please upgrade subscription.`,
-              );
-              return false;
-            }
-            const remaining = totalLicences - usedLicences;
-            if (remaining <= 5 && remaining > 0) {
-              toast(`Only ${remaining} licence(s) remaining`, { icon: "⚠️" });
-            }
-            return true;
-          } catch (error: any) {
-            // If we can't access subscription (403), skip the check
-            if (error.response?.status === 403) {
-              console.warn(
-                "Subscription check skipped - insufficient permissions",
-              );
-              return true;
-            }
-            throw error;
-          }
-        }
-        return true;
-      }
-
-      // For Client Admin, try to fetch subscription, but handle 403 gracefully
-      try {
-        const subRes = await api.get(`/clients/${clientId}/subscriptions`);
-        const totalLicences = subRes.data?.licence_count || 0;
-        const usedLicences = subRes.data?.used_licences || 0;
-
-        if (usedLicences >= totalLicences && totalLicences > 0) {
-          toast.error(
-            `Licence limit reached (${totalLicences}/${totalLicences}). Please upgrade your subscription.`,
-          );
-          return false;
-        }
-
-        const remaining = totalLicences - usedLicences;
-        if (remaining <= 5 && remaining > 0) {
-          toast(`Only ${remaining} licence(s) remaining`, { icon: "⚠️" });
-        }
-
-        return true;
-      } catch (error: any) {
-        // If we can't access subscription (403), skip the check
-        if (error.response?.status === 403) {
-          console.warn("Subscription check skipped - insufficient permissions");
-          return true;
-        }
-        throw error;
-      }
-    } catch (error: any) {
-      console.error("Error checking licence limit:", error);
-      // If there's any error, allow the user creation to proceed
-      // The backend will enforce the limit anyway
-      return true;
-    }
-  };
-
-  // ─── Auto-generate Sequential Employee ID ──────────────────────────────────
   const generateEmployeeId = useCallback(() => {
-    // Get the highest existing employee ID
     const existingIds = users
       .map((u) => u.employee_id)
       .filter((id) => id && id.startsWith("EMP"))
@@ -398,31 +337,13 @@ export default function UsersPage() {
     if (existingIds.length > 0) {
       nextNumber = Math.max(...existingIds) + 1;
     }
-
-    // Pad with leading zeros to make it 6 digits
-    const paddedNumber = nextNumber.toString().padStart(6, "0");
-    return `EMP${paddedNumber}`;
+    return `EMP${nextNumber.toString().padStart(6, "0")}`;
   }, [users]);
 
-  // ─── Filter departments when client changes ────────────────────────────────
+  // Filter departments based on selected client
   useEffect(() => {
-    // Get client_id from token for Client Admin
-    const getClientIdFromToken = () => {
-      if (typeof window === "undefined") return "";
-      const token = localStorage.getItem("access_token");
-      if (!token) return "";
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        return payload.client_id || "";
-      } catch {
-        return "";
-      }
-    };
-
     const tokenClientId = getClientIdFromToken();
     const isClientAdmin = getUserRoleFromToken() === "CLIENT_ADMIN";
-
-    // Use token client_id for Client Admin, or formData.client_id for Platform Admin
     const effectiveClientId = isClientAdmin
       ? tokenClientId
       : formData.client_id;
@@ -433,7 +354,6 @@ export default function UsersPage() {
           dept.client_id === effectiveClientId && dept.is_active !== false,
       );
       setFilteredDepartments(filtered);
-      // Reset department if current selection is not in filtered list
       if (
         formData.department_id &&
         !filtered.some((d) => d.id === formData.department_id)
@@ -445,12 +365,10 @@ export default function UsersPage() {
     }
   }, [formData.client_id, departments]);
 
+  // Model Setup: When modal opens, generate employee ID and fetch departments/services/clients
   useEffect(() => {
     if (showModal) {
-      setFormData((prev) => ({
-        ...prev,
-        employee_id: generateEmployeeId(),
-      }));
+      setFormData((prev) => ({ ...prev, employee_id: generateEmployeeId() }));
       fetchDepartments();
       fetchSubscribedServices();
       if (isPlatformAdmin) {
@@ -460,12 +378,12 @@ export default function UsersPage() {
       setPermissions({});
       setSubscribedServices([]);
       setFilteredDepartments([]);
-      setPhoneError("");
+      setFormErrors({});
       setShowPassword(false);
     }
   }, [showModal, isPlatformAdmin, generateEmployeeId]);
 
-  // ─── Initial data fetch ────────────────────────────────────────────────────
+  // Initial fetch of users and departments on component mount
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -476,56 +394,52 @@ export default function UsersPage() {
     fetchDepartments();
   }, [router, fetchUsers]);
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // Only allow digits
-    const sanitized = value.replace(/[^0-9]/g, "");
-    setFormData({ ...formData, phone: sanitized });
+  const checkLicenceLimit = async (): Promise<boolean> => {
+    try {
+      const clientId = getClientIdFromToken();
+      if (!clientId && formData.client_id) {
+        try {
+          const subRes = await api.get(
+            `/clients/${formData.client_id}/subscriptions`,
+          );
+          const totalLicences = subRes.data?.licence_count || 0;
+          const usedLicences = subRes.data?.used_licences || 0;
 
-    // Validate - exactly 10 digits
-    if (sanitized && sanitized.length !== 10) {
-      setPhoneError("Phone number must be exactly 10 digits");
-    } else {
-      setPhoneError("");
+          if (usedLicences >= totalLicences && totalLicences > 0) {
+            toast.error(
+              `Licence limit reached (${totalLicences}/${totalLicences}). Please upgrade subscription.`,
+            );
+            return false;
+          }
+          const remaining = totalLicences - usedLicences;
+          if (remaining <= 5 && remaining > 0) {
+            toast(`Only ${remaining} licence(s) remaining`, { icon: "⚠️" });
+          }
+          return true;
+        } catch (error: any) {
+          if (error.response?.status === 403) return true;
+          throw error;
+        }
+      }
+      return true;
+    } catch (error: any) {
+      console.error("Error checking licence limit:", error);
+      return true;
     }
   };
 
-  const handleEditPhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    const sanitized = value.replace(/[^0-9]/g, "");
-    setEditFormData({ ...editFormData, phone: sanitized });
-
-    if (sanitized && sanitized.length !== 10) {
-      setEditPhoneError("Phone number must be exactly 10 digits");
-    } else {
-      setEditPhoneError("");
-    }
-  };
-
-  // ─── Create User with permissions ──────────────────────────────────────────
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.full_name.trim()) {
-      toast.error("Full name is required");
-      return;
-    }
-    if (!formData.email.trim()) {
-      toast.error("Email is required");
-      return;
-    }
-    if (!formData.password || formData.password.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-    if (!formData.department_id) {
-      toast.error("Please select a department");
-      return;
-    }
-
-    // ─── Phone validation ───
-    if (!formData.phone || formData.phone.length !== 10) {
-      toast.error("Please enter a valid 10-digit phone number");
+    const result = userSchema.safeParse(formData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setFormErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
@@ -535,7 +449,6 @@ export default function UsersPage() {
     setSubmitting(true);
     try {
       const clientId = formData.client_id || getClientIdFromToken();
-
       if (!clientId) {
         toast.error("Client ID is required. Please select a client.");
         setSubmitting(false);
@@ -544,20 +457,19 @@ export default function UsersPage() {
 
       const payloadData = {
         client_id: clientId,
-        full_name: formData.full_name.trim(),
-        email: formData.email.trim(),
-        password: formData.password,
-        phone: formData.phone || "",
-        employee_id: formData.employee_id || generateEmployeeId(),
-        department_id: formData.department_id,
+        full_name: result.data.full_name.trim(),
+        email: result.data.email.trim(),
+        password: result.data.password,
+        phone: result.data.phone || "",
+        employee_id: result.data.employee_id || generateEmployeeId(),
+        department_id: result.data.department_id,
       };
-
-      const permissionsArray = Object.values(permissions);
 
       if (userType === "manager") {
         await api.post("/users/managers", payloadData);
         toast.success("Manager created successfully");
       } else {
+        const permissionsArray = Object.values(permissions);
         await api.post("/users", {
           ...payloadData,
           role: {
@@ -568,6 +480,7 @@ export default function UsersPage() {
         });
         toast.success("User created successfully");
       }
+
       setShowModal(false);
       setFormData({
         full_name: "",
@@ -579,18 +492,12 @@ export default function UsersPage() {
         client_id: "",
       });
       setPermissions({});
-      setPhoneError("");
+      setFormErrors({});
       setShowPassword(false);
       fetchUsers();
     } catch (error: any) {
       console.error("Error creating user:", error);
-      const errorMsg =
-        error.response?.data?.detail ||
-        error.message ||
-        "Failed to create user";
-      toast.error(
-        typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg),
-      );
+      toast.error(error.response?.data?.detail || "Failed to create user");
     } finally {
       setSubmitting(false);
     }
@@ -600,18 +507,15 @@ export default function UsersPage() {
     e.preventDefault();
     if (!selectedUser) return;
 
-    if (!editFormData.full_name.trim()) {
-      toast.error("Full name is required");
-      return;
-    }
-    if (!editFormData.department_id) {
-      toast.error("Please select a department");
-      return;
-    }
-
-    // ─── Phone validation ───
-    if (editFormData.phone && !validatePhoneNumber(editFormData.phone)) {
-      toast.error("Please enter a valid phone number (10-15 digits)");
+    const result = editUserSchema.safeParse(editFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setEditErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
@@ -622,13 +526,13 @@ export default function UsersPage() {
           ? `/users/managers/${selectedUser.id}`
           : `/users/${selectedUser.id}`;
       await api.patch(endpoint, {
-        full_name: editFormData.full_name.trim(),
-        phone: editFormData.phone || "",
-        department_id: editFormData.department_id,
+        full_name: result.data.full_name.trim(),
+        phone: result.data.phone || "",
+        department_id: result.data.department_id,
       });
       toast.success("User updated successfully");
       setShowEditModal(false);
-      setEditPhoneError("");
+      setEditErrors({});
       fetchUsers();
     } catch (error: any) {
       console.error("Error updating user:", error);
@@ -685,7 +589,7 @@ export default function UsersPage() {
       phone: user.phone || "",
       department_id: user.department_id || "",
     });
-    setEditPhoneError("");
+    setEditErrors({});
     setShowEditModal(true);
   };
 
@@ -704,7 +608,6 @@ export default function UsersPage() {
     }));
   };
 
-  // ─── Export Handlers ──────────────────────────────────────────────────────
   const handleExportCSV = () => {
     exportToCSV(users, `users_${new Date().toISOString().split("T")[0]}`);
     setShowExportDropdown(false);
@@ -739,7 +642,6 @@ export default function UsersPage() {
     }
   };
 
-  // ─── View Mode Labels ──────────────────────────────────────────────────────
   const viewModeLabels: Record<ViewMode, string> = {
     table: "📋 Table",
     grid: "📊 Grid",
@@ -769,58 +671,46 @@ export default function UsersPage() {
           justify-content: center;
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
+          padding: 16px;
         }
-        /* Enhanced modal: bigger, two-column layout */
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
-          border-radius: 32px;
+          border-radius: 28px;
           width: 95%;
           max-width: 820px;
           max-height: 90vh;
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
           box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
-          padding: 28px 32px 32px;
+          padding: 20px;
         }
 
-        /* ─── Beautiful Rounded Scrollbar ──────────────────────────────────── */
-        .modal-content::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
+        @media (min-width: 640px) {
+          .modal-content {
+            padding: 28px 32px;
+            border-radius: 32px;
+          }
         }
 
-        .modal-content::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 20px;
-          margin: 12px 0;
-          box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.02);
+        @media (max-width: 640px) {
+          .modal-content {
+            border-radius: 20px;
+            padding: 16px;
+          }
+          .modal-grid-2 {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+          .modal-grid-2 .full-width {
+            grid-column: 1 / -1;
+          }
         }
 
-        .modal-content::-webkit-scrollbar-thumb {
-          background: linear-gradient(180deg, #dc2626, #ef4444);
-          border-radius: 20px;
-          border: 2px solid transparent;
-          background-clip: padding-box;
-          transition: all 0.2s ease;
-        }
-
-        .modal-content::-webkit-scrollbar-thumb:hover {
-          background: linear-gradient(180deg, #b91c1c, #dc2626);
-          border: 1px solid transparent;
-          background-clip: padding-box;
-          transform: scale(1.05);
-        }
-
-        /* Firefox scrollbar support */
-        .modal-content {
-          scrollbar-width: thin;
-          scrollbar-color: #dc2626 #f1f5f9;
-          scroll-behavior: smooth;
-        }
-
-        .modal-content::-webkit-scrollbar-track:hover {
-          background: #e8edf4;
-        }
+        .modal-content::-webkit-scrollbar { width: 6px; }
+        .modal-content::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 20px; margin: 12px 0; }
+        .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #dc2626, #ef4444); border-radius: 20px; border: 2px solid transparent; background-clip: padding-box; }
+        .modal-content::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #b91c1c, #dc2626); }
+        .modal-content { scrollbar-width: thin; scrollbar-color: #dc2626 #f1f5f9; scroll-behavior: smooth; }
         
         .delete-modal { max-width: 440px; }
         
@@ -849,6 +739,7 @@ export default function UsersPage() {
           display: inline-block;
           width: 50px;
           height: 24px;
+          flex-shrink: 0;
         }
         .toggle-switch input {
           opacity: 0;
@@ -884,7 +775,6 @@ export default function UsersPage() {
           transform: translateX(26px);
         }
         
-        /* Softer placeholder color */
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -908,9 +798,9 @@ export default function UsersPage() {
           color: #374151;
         }
 
-        /* ─── Table Styles ──────────────────────────────────────────────────── */
         .user-table {
           width: 100%;
+          min-width: 700px;
           border-collapse: collapse;
           font-size: 14px;
           font-weight: 400;
@@ -944,7 +834,22 @@ export default function UsersPage() {
           background: #fecaca;
         }
 
-        /* ─── View Toggle Buttons ──────────────────────────────────────────── */
+        .table-scroll {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        .table-scroll::-webkit-scrollbar {
+          height: 6px;
+        }
+        .table-scroll::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 20px;
+        }
+        .table-scroll::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 20px;
+        }
+
         .view-toggle-btn {
           padding: 6px 14px;
           border-radius: 8px;
@@ -967,7 +872,6 @@ export default function UsersPage() {
           box-shadow: 0 2px 8px rgba(220,38,38,0.25);
         }
 
-        /* Two-column grid for modal fields */
         .modal-grid-2 {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -976,7 +880,14 @@ export default function UsersPage() {
         .modal-grid-2 .full-width {
           grid-column: 1 / -1;
         }
-        /* Icon inside input */
+
+        @media (max-width: 640px) {
+          .modal-grid-2 {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+        }
+
         .input-icon-wrapper {
           position: relative;
         }
@@ -1012,7 +923,6 @@ export default function UsersPage() {
           top: 16px;
           transform: none;
         }
-        /* Password toggle button */
         .password-toggle {
           position: absolute;
           right: 14px;
@@ -1037,7 +947,6 @@ export default function UsersPage() {
           width: 18px;
           height: 18px;
         }
-        /* User type toggle */
         .user-type-toggle {
           display: flex;
           gap: 8px;
@@ -1065,7 +974,6 @@ export default function UsersPage() {
         .user-type-toggle button:hover:not(.active) {
           background: rgba(220,38,38,0.08);
         }
-        /* Phone input with error state */
         .input-error {
           border-color: #ef4444 !important;
         }
@@ -1073,23 +981,53 @@ export default function UsersPage() {
           ring-color: #ef4444 !important;
           border-color: #ef4444 !important;
         }
-      `}</style>
 
+        /* ─── RESPONSIVE ─── */
+        @media (max-width: 480px) {
+          .header-actions {
+            flex-wrap: wrap;
+            gap: 8px;
+          }
+          .header-actions button {
+            font-size: 12px;
+            padding: 6px 12px;
+          }
+          .stat-card {
+            padding: 10px 12px;
+          }
+          .stat-card .stat-value {
+            font-size: 18px;
+          }
+          .stat-card .stat-label {
+            font-size: 10px;
+          }
+          .stats-grid {
+            gap: 8px;
+          }
+        }
+
+        @media (min-width: 481px) and (max-width: 768px) {
+          .stat-card .stat-value {
+            font-size: 22px;
+          }
+        }
+      `}</style>
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-20 left-10 w-72 h-72 bg-red-100/30 rounded-full blur-3xl animate-pulse"></div>
           <div className="absolute bottom-20 right-10 w-96 h-96 bg-rose-100/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
         </div>
 
-        <div className="relative p-6 lg:p-8 max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 fade-in-up">
+        <div className="relative p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+          {/* ─── HEADER ─── */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3 sm:gap-4 fade-in-up">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md">
+                <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md">
                   <svg
-                    width="20"
-                    height="20"
+                    width="18"
+                    height="18"
+                    className="sm:w-[20px] sm:h-[20px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="white"
@@ -1100,21 +1038,22 @@ export default function UsersPage() {
                     <path d="M17 3.13a4 4 0 010 7.75" />
                   </svg>
                 </div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-gray-800">
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-800">
                   Users
                 </h1>
               </div>
-              <p className="text-gray-500 ml-14 pl-0.5 text-sm font-normal">
+              <p className="text-gray-500 ml-[52px] sm:ml-[56px] text-xs sm:text-sm font-normal">
                 Manage employees, managers, and system users
               </p>
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* ─── View Toggle ─── */}
+
+            {/* ─── Header Actions ─── */}
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap header-actions w-full sm:w-auto">
               <div className="flex bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100 p-1 shadow-sm">
                 {(["table", "grid"] as ViewMode[]).map((mode) => (
                   <button
                     key={mode}
-                    className={`view-toggle-btn ${viewMode === mode ? "active" : ""}`}
+                    className={`view-toggle-btn text-xs sm:text-sm ${viewMode === mode ? "active" : ""}`}
                     onClick={() => setViewMode(mode)}
                   >
                     {viewModeLabels[mode]}
@@ -1122,16 +1061,16 @@ export default function UsersPage() {
                 ))}
               </div>
 
-              {/* ─── Export Dropdown ─── */}
               <div className="relative">
                 <button
                   ref={exportButtonRef}
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
+                  className="cursor-pointer flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
                 >
                   <svg
-                    width="16"
-                    height="16"
+                    width="14"
+                    height="14"
+                    className="sm:w-[16px] sm:h-[16px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -1141,10 +1080,11 @@ export default function UsersPage() {
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  Export
+                  <span className="hidden sm:inline">Export</span>
                   <svg
-                    width="14"
-                    height="14"
+                    width="12"
+                    height="12"
+                    className="sm:w-[14px] sm:h-[14px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -1161,7 +1101,7 @@ export default function UsersPage() {
                       className="fixed bg-white rounded-xl shadow-2xl border border-gray-100 py-1 fade-in-up"
                       style={{
                         zIndex: 999999,
-                        minWidth: "180px",
+                        minWidth: "160px",
                         top: dropdownPosition.top,
                         left: dropdownPosition.left,
                         transform: "translateX(-50%)",
@@ -1184,36 +1124,37 @@ export default function UsersPage() {
                   )}
               </div>
 
-              {/* ─── Add User Button ─── */}
               <button
                 onClick={() => setShowModal(true)}
-                className="cursor-pointer group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden"
+                className="cursor-pointer group relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden"
               >
                 <svg
-                  width="18"
-                  height="18"
+                  width="16"
+                  height="16"
+                  className="sm:w-[18px] sm:h-[18px] group-hover:rotate-90 transition-transform duration-300"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2.5"
-                  className="group-hover:rotate-90 transition-transform duration-300"
                 >
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                <span>Add User</span>
+                <span className="hidden xs:inline">Add User</span>
+                <span className="xs:hidden">Add</span>
               </button>
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* ─── STATS ─── */}
           {!loading && users.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 fade-in-up">
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6 fade-in-up stats-grid">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="16"
+                    height="16"
+                    className="sm:w-[22px] sm:h-[22px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#dc2626"
@@ -1224,19 +1165,20 @@ export default function UsersPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
+                  <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 stat-value">
                     {users.length}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">
+                  <p className="text-[9px] sm:text-xs lg:text-sm font-medium text-gray-500 stat-label">
                     Total Users
                   </p>
                 </div>
               </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-green-50 flex items-center justify-center">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-green-100 to-green-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="16"
+                    height="16"
+                    className="sm:w-[22px] sm:h-[22px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#16a34a"
@@ -1247,17 +1189,20 @@ export default function UsersPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
+                  <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 stat-value">
                     {activeCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">Active</p>
+                  <p className="text-[9px] sm:text-xs lg:text-sm font-medium text-gray-500 stat-label">
+                    Active
+                  </p>
                 </div>
               </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="16"
+                    height="16"
+                    className="sm:w-[22px] sm:h-[22px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#6b7280"
@@ -1267,10 +1212,10 @@ export default function UsersPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
+                  <p className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800 stat-value">
                     {deactivatedCount}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">
+                  <p className="text-[9px] sm:text-xs lg:text-sm font-medium text-gray-500 stat-label">
                     Deactivated
                   </p>
                 </div>
@@ -1278,11 +1223,11 @@ export default function UsersPage() {
             </div>
           )}
 
-          {/* Search and Toggle */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 fade-in-up">
-            <div className="relative max-w-md w-full">
+          {/* ─── SEARCH ─── */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6 fade-in-up">
+            <div className="relative w-full sm:w-72 lg:w-96">
               <svg
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1296,13 +1241,13 @@ export default function UsersPage() {
                 placeholder="Search users by name, email, or role..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-sm font-normal"
+                className="w-full pl-10 sm:pl-11 pr-8 sm:pr-10 py-2.5 sm:py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-sm font-normal"
               />
             </div>
 
-            <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+            <div className="flex items-center gap-2 sm:gap-3 bg-white/80 backdrop-blur-sm px-3 sm:px-4 py-2 rounded-xl shadow-sm border border-gray-100 w-full sm:w-auto">
               <span
-                className={`text-sm font-medium ${!showDeactivated ? "text-red-600" : "text-gray-500"}`}
+                className={`text-xs sm:text-sm font-medium ${!showDeactivated ? "text-red-600" : "text-gray-500"}`}
               >
                 Active
               </span>
@@ -1315,26 +1260,25 @@ export default function UsersPage() {
                 <span className="toggle-slider"></span>
               </label>
               <span
-                className={`text-sm font-medium ${showDeactivated ? "text-red-600" : "text-gray-500"}`}
+                className={`text-xs sm:text-sm font-medium ${showDeactivated ? "text-red-600" : "text-gray-500"}`}
               >
                 Deactivated
               </span>
             </div>
           </div>
 
-          {/* Loading State */}
+          {/* ─── LOADING ─── */}
           {loading && (
             <div className="flex justify-center items-center py-20">
-              <div className="w-12 h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
+              <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
             </div>
           )}
 
-          {/* ─── Content Based on View Mode ─── */}
+          {/* ─── CONTENT ─── */}
           {!loading && (
             <>
-              {/* ─── GRID VIEW ─── */}
               {viewMode === "grid" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="card-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                   {filteredUsers.map((user, idx) => {
                     const department = departments.find(
                       (d) => d.id === user.department_id,
@@ -1346,23 +1290,23 @@ export default function UsersPage() {
                         style={{ animationDelay: `${idx * 70}ms` }}
                         onClick={() => router.push(`/users/${user.id}`)}
                       >
-                        <div className="p-5">
+                        <div className="p-4 sm:p-5">
                           <div className="flex items-start justify-between mb-3">
-                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
-                              <span className="text-red-600 font-bold text-xl">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
+                              <span className="text-red-600 font-bold text-lg sm:text-xl">
                                 {user.full_name.charAt(0).toUpperCase()}
                               </span>
                             </div>
                             <span
-                              className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getRoleBadgeColor(user.role)}`}
+                              className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold ${getRoleBadgeColor(user.role)}`}
                             >
                               {user.role}
                             </span>
                           </div>
-                          <h3 className="font-bold text-gray-900 text-lg mb-1">
+                          <h3 className="font-bold text-gray-900 text-base sm:text-lg mb-1 line-clamp-1">
                             {user.full_name}
                           </h3>
-                          <p className="text-sm text-gray-500 mb-2">
+                          <p className="text-xs sm:text-sm text-gray-500 mb-2 truncate">
                             {user.email}
                           </p>
                           {user.employee_id && (
@@ -1387,10 +1331,9 @@ export default function UsersPage() {
                 </div>
               )}
 
-              {/* ─── TABLE VIEW ─── */}
               {viewMode === "table" && (
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
-                  <div className="overflow-x-auto">
+                  <div className="table-scroll">
                     <table className="user-table">
                       <thead>
                         <tr>
@@ -1408,7 +1351,7 @@ export default function UsersPage() {
                           <tr>
                             <td
                               colSpan={7}
-                              className="text-center py-12 text-gray-500 text-sm font-normal"
+                              className="text-center py-8 sm:py-12 text-gray-500 text-sm font-normal"
                             >
                               No users found
                             </td>
@@ -1424,6 +1367,7 @@ export default function UsersPage() {
                                 onClick={() => router.push(`/users/${user.id}`)}
                                 onMouseEnter={() => setHoveredRow(user.id)}
                                 onMouseLeave={() => setHoveredRow(null)}
+                                className="cursor-pointer hover:bg-red-50 transition-colors"
                               >
                                 <td className="font-semibold text-gray-900">
                                   {user.full_name}
@@ -1437,7 +1381,7 @@ export default function UsersPage() {
                                 </td>
                                 <td>
                                   <span
-                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getRoleBadgeColor(user.role)}`}
+                                    className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold ${getRoleBadgeColor(user.role)}`}
                                   >
                                     {user.role}
                                   </span>
@@ -1447,7 +1391,7 @@ export default function UsersPage() {
                                 </td>
                                 <td>
                                   <span
-                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${user.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                                    className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold ${user.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
                                   >
                                     {user.is_active ? "Active" : "Deactivated"}
                                   </span>
@@ -1464,13 +1408,14 @@ export default function UsersPage() {
             </>
           )}
 
-          {/* Empty State */}
+          {/* ─── EMPTY STATE ─── */}
           {!loading && filteredUsers.length === 0 && (
-            <div className="text-center py-20 fade-in-up">
-              <div className="w-20 h-20 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <div className="text-center py-12 sm:py-20 fade-in-up">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-4">
                 <svg
-                  width="32"
-                  height="32"
+                  width="28"
+                  height="28"
+                  className="sm:w-[32px] sm:h-[32px]"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#9ca3af"
@@ -1480,7 +1425,7 @@ export default function UsersPage() {
                   <circle cx="12" cy="7" r="4" />
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-2">
                 No users found
               </h3>
               <p className="text-gray-500 mb-4 text-sm font-normal">
@@ -1500,28 +1445,28 @@ export default function UsersPage() {
           )}
         </div>
       </div>
-
-      {/* ─── ENHANCED: Create User Modal ─── */}
+      // Create User Modal
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              <div className="flex justify-between items-start mb-6">
+              <div className="flex justify-between items-start mb-4 sm:mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
+                  <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
                     Create User
                   </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
                     Enter user details below
                   </p>
                 </div>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
                 >
                   <svg
-                    width="16"
-                    height="16"
+                    width="14"
+                    height="14"
+                    className="sm:w-[16px] sm:h-[16px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -1534,7 +1479,7 @@ export default function UsersPage() {
               </div>
 
               {/* User Type Toggle */}
-              <div className="user-type-toggle mb-6">
+              <div className="user-type-toggle mb-4 sm:mb-6">
                 <button
                   type="button"
                   onClick={() => setUserType("user")}
@@ -1553,7 +1498,6 @@ export default function UsersPage() {
 
               <form onSubmit={handleCreateUser}>
                 <div className="modal-grid-2">
-                  {/* Full Name - full width */}
                   <div className="full-width">
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Full Name <span className="text-red-500">*</span>
@@ -1563,21 +1507,30 @@ export default function UsersPage() {
                       <input
                         type="text"
                         value={formData.full_name}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setFormData({
                             ...formData,
                             full_name: e.target.value,
-                          })
-                        }
+                          });
+                          if (formErrors.full_name)
+                            setFormErrors({ ...formErrors, full_name: "" });
+                        }}
                         required
-                        autoComplete="off"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                          formErrors.full_name
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
                         placeholder="John Doe"
                       />
                     </div>
+                    {formErrors.full_name && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.full_name}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Email */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Email <span className="text-red-500">*</span>
@@ -1587,18 +1540,27 @@ export default function UsersPage() {
                       <input
                         type="email"
                         value={formData.email}
-                        onChange={(e) =>
-                          setFormData({ ...formData, email: e.target.value })
-                        }
+                        onChange={(e) => {
+                          setFormData({ ...formData, email: e.target.value });
+                          if (formErrors.email)
+                            setFormErrors({ ...formErrors, email: "" });
+                        }}
                         required
-                        autoComplete="new-email"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                          formErrors.email
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
                         placeholder="john@company.com"
                       />
                     </div>
+                    {formErrors.email && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.email}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Password with show/hide */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Password <span className="text-red-500">*</span>
@@ -1608,12 +1570,20 @@ export default function UsersPage() {
                       <input
                         type={showPassword ? "text" : "password"}
                         value={formData.password}
-                        onChange={(e) =>
-                          setFormData({ ...formData, password: e.target.value })
-                        }
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData,
+                            password: e.target.value,
+                          });
+                          if (formErrors.password)
+                            setFormErrors({ ...formErrors, password: "" });
+                        }}
                         required
-                        autoComplete="new-password"
-                        className="w-full px-4 py-2.5 pl-10 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        className={`w-full px-4 py-2.5 pl-10 pr-12 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                          formErrors.password
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
                         placeholder="••••••••"
                       />
                       <button
@@ -1645,12 +1615,16 @@ export default function UsersPage() {
                         )}
                       </button>
                     </div>
+                    {formErrors.password && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.password}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
-                      Min 8 characters with uppercase, lowercase, and number
+                      Min 8 chars with uppercase, lowercase, and number
                     </p>
                   </div>
 
-                  {/* Phone */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Phone <span className="text-red-500">*</span>
@@ -1660,20 +1634,27 @@ export default function UsersPage() {
                       <input
                         type="tel"
                         value={formData.phone}
-                        onChange={handlePhoneChange}
+                        onChange={(e) => {
+                          const sanitized = e.target.value.replace(
+                            /[^0-9]/g,
+                            "",
+                          );
+                          setFormData({ ...formData, phone: sanitized });
+                          if (formErrors.phone)
+                            setFormErrors({ ...formErrors, phone: "" });
+                        }}
                         required
-                        autoComplete="new-phone"
                         className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
-                          phoneError
-                            ? "border-red-500 focus:ring-red-500/50 focus:border-red-500"
-                            : "border-gray-200 focus:ring-red-400/50 focus:border-red-400"
+                          formErrors.phone
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
                         }`}
                         placeholder="9876543210"
                       />
                     </div>
-                    {phoneError && (
-                      <p className="text-xs text-red-500 mt-1.5 ml-1 font-normal">
-                        {phoneError}
+                    {formErrors.phone && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.phone}
                       </p>
                     )}
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
@@ -1681,7 +1662,6 @@ export default function UsersPage() {
                     </p>
                   </div>
 
-                  {/* Employee ID */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Employee ID
@@ -1707,7 +1687,6 @@ export default function UsersPage() {
                     </p>
                   </div>
 
-                  {/* Client Dropdown - Platform Admin only */}
                   {isPlatformAdmin && (
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
@@ -1723,9 +1702,15 @@ export default function UsersPage() {
                               client_id: e.target.value,
                               department_id: "",
                             });
+                            if (formErrors.client_id)
+                              setFormErrors({ ...formErrors, client_id: "" });
                           }}
                           required
-                          className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
+                          className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                            formErrors.client_id
+                              ? "border-red-500 focus:ring-red-400/50"
+                              : "border-gray-200 focus:ring-red-400/50"
+                          }`}
                         >
                           <option value="">Select a client</option>
                           {fetchingClients ? (
@@ -1741,6 +1726,11 @@ export default function UsersPage() {
                           )}
                         </select>
                       </div>
+                      {formErrors.client_id && (
+                        <p className="text-red-500 text-xs mt-1.5 font-medium">
+                          {formErrors.client_id}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
                         Select the client for this user
                       </p>
@@ -1757,7 +1747,6 @@ export default function UsersPage() {
                     </div>
                   )}
 
-                  {/* Department Dropdown */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Department <span className="text-red-500">*</span>
@@ -1766,14 +1755,20 @@ export default function UsersPage() {
                       <span className="icon">🏛️</span>
                       <select
                         value={formData.department_id}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setFormData({
                             ...formData,
                             department_id: e.target.value,
-                          })
-                        }
+                          });
+                          if (formErrors.department_id)
+                            setFormErrors({ ...formErrors, department_id: "" });
+                        }}
                         required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                          formErrors.department_id
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
                         disabled={departmentsLoading}
                       >
                         <option value="">
@@ -1792,6 +1787,11 @@ export default function UsersPage() {
                         ))}
                       </select>
                     </div>
+                    {formErrors.department_id && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {formErrors.department_id}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
                       {departmentsLoading
                         ? "Loading departments..."
@@ -1803,7 +1803,7 @@ export default function UsersPage() {
                     </p>
                   </div>
 
-                  {/* Permissions UI - full width */}
+                  {/* Permissions */}
                   {userType !== "manager" && subscribedServices.length > 0 && (
                     <div className="full-width">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -1878,7 +1878,6 @@ export default function UsersPage() {
                   )}
                 </div>
 
-                {/* Actions */}
                 <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                   <button
                     type="button"
@@ -1907,30 +1906,30 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-
-      {/* Edit User Modal - Enhanced */}
+      // Edit User Modal
       {showEditModal && selectedUser && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
 
-              <div className="flex justify-between items-start mb-6">
+              <div className="flex justify-between items-start mb-4 sm:mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
+                  <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
                     Edit User
                   </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
                     Update user information
                   </p>
                 </div>
                 <button
                   onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
                 >
                   <svg
-                    width="16"
-                    height="16"
+                    width="14"
+                    height="14"
+                    className="sm:w-[16px] sm:h-[16px]"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -1953,20 +1952,30 @@ export default function UsersPage() {
                       <input
                         type="text"
                         value={editFormData.full_name}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setEditFormData({
                             ...editFormData,
                             full_name: e.target.value,
-                          })
-                        }
+                          });
+                          if (editErrors.full_name)
+                            setEditErrors({ ...editErrors, full_name: "" });
+                        }}
                         required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                          editErrors.full_name
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-amber-400/50"
+                        }`}
                         placeholder="Enter full name"
                       />
                     </div>
+                    {editErrors.full_name && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {editErrors.full_name}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Phone */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                       Phone <span className="text-red-500">*</span>
@@ -1976,19 +1985,30 @@ export default function UsersPage() {
                       <input
                         type="tel"
                         value={editFormData.phone}
-                        onChange={handleEditPhoneChange}
+                        onChange={(e) => {
+                          const sanitized = e.target.value.replace(
+                            /[^0-9]/g,
+                            "",
+                          );
+                          setEditFormData({
+                            ...editFormData,
+                            phone: sanitized,
+                          });
+                          if (editErrors.phone)
+                            setEditErrors({ ...editErrors, phone: "" });
+                        }}
                         required
                         className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
-                          editPhoneError
-                            ? "border-red-500 focus:ring-red-500/50 focus:border-red-500"
-                            : "border-gray-200 focus:ring-amber-400/50 focus:border-amber-400"
+                          editErrors.phone
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-amber-400/50"
                         }`}
                         placeholder="9876543210"
                       />
                     </div>
-                    {editPhoneError && (
-                      <p className="text-xs text-red-500 mt-1.5 ml-1 font-normal">
-                        {editPhoneError}
+                    {editErrors.phone && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {editErrors.phone}
                       </p>
                     )}
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
@@ -1998,19 +2018,26 @@ export default function UsersPage() {
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Department
+                      Department <span className="text-red-500">*</span>
                     </label>
                     <div className="input-icon-wrapper">
                       <span className="icon">🏛️</span>
                       <select
                         value={editFormData.department_id}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setEditFormData({
                             ...editFormData,
                             department_id: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
+                          });
+                          if (editErrors.department_id)
+                            setEditErrors({ ...editErrors, department_id: "" });
+                        }}
+                        required
+                        className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                          editErrors.department_id
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-amber-400/50"
+                        }`}
                       >
                         <option value="">Select Department</option>
                         {departments
@@ -2022,6 +2049,11 @@ export default function UsersPage() {
                           ))}
                       </select>
                     </div>
+                    {editErrors.department_id && (
+                      <p className="text-red-500 text-xs mt-1.5 font-medium">
+                        {editErrors.department_id}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
                       Select a department for this user
                     </p>
@@ -2056,8 +2088,7 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-
-      {/* Delete Confirmation Modal - Enhanced */}
+      // Delete Confirmation Modal
       {showDeleteConfirm && selectedUser && (
         <div
           className="modal-overlay"
@@ -2068,10 +2099,11 @@ export default function UsersPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
                 <svg
-                  width="28"
-                  height="28"
+                  width="24"
+                  height="24"
+                  className="sm:w-[28px] sm:h-[28px]"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#dc2626"
@@ -2082,7 +2114,7 @@ export default function UsersPage() {
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2">
                 Deactivate User?
               </h3>
               <p className="text-gray-500 text-sm mb-4 font-normal">
@@ -2115,8 +2147,7 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-
-      {/* Restore Confirmation Modal - Enhanced */}
+      // Restore Confirmation Modal
       {showRestoreConfirm && selectedUser && (
         <div
           className="modal-overlay"
@@ -2127,10 +2158,11 @@ export default function UsersPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
                 <svg
-                  width="28"
-                  height="28"
+                  width="24"
+                  height="24"
+                  className="sm:w-[28px] sm:h-[28px]"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="#16a34a"
@@ -2141,7 +2173,7 @@ export default function UsersPage() {
                   <line x1="12" y1="2" x2="12" y2="15" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">
+              <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2">
                 Restore User?
               </h3>
               <p className="text-gray-500 text-sm mb-4 font-normal">

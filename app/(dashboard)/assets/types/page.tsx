@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { z } from "zod";
 import api from "@/app/lib/api";
 
 interface Category {
@@ -21,13 +22,30 @@ interface AssetType {
   created_by: string;
 }
 
+// Zod schema for form validation
+
+const typeSchema = z.object({
+  category_id: z.string().min(1, "Please select a category"),
+  name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  description: z
+    .string()
+    .max(500, "Description must be at most 500 characters")
+    .optional()
+    .default(""),
+});
+
 export default function AssetTypesPage() {
   const router = useRouter();
   const [types, setTypes] = useState<AssetType[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] =
+    useState<string>("");
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -35,30 +53,30 @@ export default function AssetTypesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // ─── Form State ────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
     category_id: "",
     name: "",
     description: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
   const [editFormData, setEditFormData] = useState({
     category_id: "",
     name: "",
     description: "",
   });
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
-  // ─── Set mounted state ────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // ─── Fetch Categories ─────────────────────────────────────────────────────
   const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get("/asset-categories");
       const activeCategories = (response.data || []).filter(
-        (c: Category) => c.is_active !== false
+        (c: Category) => c.is_active !== false,
       );
       setCategories(activeCategories);
     } catch (error: any) {
@@ -66,7 +84,6 @@ export default function AssetTypesPage() {
     }
   }, []);
 
-  // ─── Fetch Types ──────────────────────────────────────────────────────────
   const fetchTypes = useCallback(async () => {
     try {
       setLoading(true);
@@ -80,10 +97,9 @@ export default function AssetTypesPage() {
     }
   }, []);
 
-  // ─── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    
+    if (!mounted) return;
+
     const token = localStorage.getItem("access_token");
     if (!token) {
       router.push("/login");
@@ -91,31 +107,34 @@ export default function AssetTypesPage() {
     }
     fetchCategories();
     fetchTypes();
-  }, [router, fetchCategories, fetchTypes]);
+  }, [router, fetchCategories, fetchTypes, mounted]);
 
-  // ─── Create Type ──────────────────────────────────────────────────────────
   const handleCreateType = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.category_id) {
-      toast.error("Please select a category");
-      return;
-    }
-    if (!formData.name.trim()) {
-      toast.error("Type name is required");
+
+    const result = typeSchema.safeParse(formData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setFormErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
     setSubmitting(true);
     try {
       await api.post("/asset-types", {
-        category_id: formData.category_id,
-        name: formData.name.trim(),
-        description: formData.description.trim() || null,
+        category_id: result.data.category_id,
+        name: result.data.name.trim(),
+        description: result.data.description.trim() || null,
       });
       toast.success("Asset type created successfully");
       setShowModal(false);
       setFormData({ category_id: "", name: "", description: "" });
+      setFormErrors({});
       fetchTypes();
     } catch (error: any) {
       console.error("Error creating type:", error);
@@ -125,30 +144,33 @@ export default function AssetTypesPage() {
     }
   };
 
-  // ─── Update Type ──────────────────────────────────────────────────────────
   const handleUpdateType = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!selectedType) return;
-    if (!editFormData.category_id) {
-      toast.error("Please select a category");
-      return;
-    }
-    if (!editFormData.name.trim()) {
-      toast.error("Type name is required");
+
+    const result = typeSchema.safeParse(editFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setEditErrors(errors);
+      toast.error(result.error.issues[0].message);
       return;
     }
 
     setSubmitting(true);
     try {
       await api.patch(`/asset-types/${selectedType.id}`, {
-        category_id: editFormData.category_id,
-        name: editFormData.name.trim(),
-        description: editFormData.description.trim() || null,
+        category_id: result.data.category_id,
+        name: result.data.name.trim(),
+        description: result.data.description.trim() || null,
       });
       toast.success("Asset type updated successfully");
       setShowEditModal(false);
       setSelectedType(null);
+      setEditErrors({});
       fetchTypes();
     } catch (error: any) {
       console.error("Error updating type:", error);
@@ -158,7 +180,6 @@ export default function AssetTypesPage() {
     }
   };
 
-  // ─── Delete Type ──────────────────────────────────────────────────────────
   const handleDeleteType = async () => {
     if (!selectedType) return;
 
@@ -177,7 +198,6 @@ export default function AssetTypesPage() {
     }
   };
 
-  // ─── Open Edit Modal ──────────────────────────────────────────────────────
   const openEditModal = (type: AssetType) => {
     setSelectedType(type);
     setEditFormData({
@@ -185,33 +205,35 @@ export default function AssetTypesPage() {
       name: type.name,
       description: type.description || "",
     });
+    setEditErrors({});
     setShowEditModal(true);
   };
 
-  // ─── Open Delete Confirm ──────────────────────────────────────────────────
   const openDeleteConfirm = (type: AssetType) => {
     setSelectedType(type);
     setShowDeleteConfirm(true);
   };
 
-  // ─── Get Category Name ────────────────────────────────────────────────────
   const getCategoryName = (categoryId: string) => {
     const category = categories.find((c) => c.id === categoryId);
     return category ? category.name : "Unknown Category";
   };
 
-  // ─── Filter Types ─────────────────────────────────────────────────────────
   const filteredTypes = types.filter(
     (type) =>
-      type.is_active !== false &&
-      (selectedCategoryFilter === "" || type.category_id === selectedCategoryFilter) &&
+      (showDeactivated ? type.is_active === false : type.is_active !== false) &&
+      (selectedCategoryFilter === "" ||
+        type.category_id === selectedCategoryFilter) &&
       (type.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (type.description &&
           type.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
         getCategoryName(type.category_id)
           .toLowerCase()
-          .includes(searchTerm.toLowerCase()))
+          .includes(searchTerm.toLowerCase())),
   );
+
+  const activeCount = types.filter((t) => t.is_active !== false).length;
+  const deactivatedCount = types.filter((t) => t.is_active === false).length;
 
   if (!mounted) {
     return (
@@ -298,12 +320,18 @@ export default function AssetTypesPage() {
           border: 1px solid #f1f5f9;
           transition: all 0.3s ease;
           cursor: default;
+          padding: 20px 24px;
+          text-align: center;
         }
         .stat-card:hover {
           transform: translateY(-2px);
           box-shadow: 0 8px 25px -8px rgba(0,0,0,0.1);
         }
-
+        @media (max-width: 639px) {
+          .stat-card {
+          padding: 16px;
+        }
+      }
         .input-fancy {
           transition: all 0.2s ease;
           background: #fafbfc;
@@ -442,6 +470,46 @@ export default function AssetTypesPage() {
           background-position: right 14px center;
           padding-right: 40px;
         }
+
+        .toggle-switch {
+          position: relative;
+          display: inline-block;
+          width: 50px;
+          height: 24px;
+        }
+        .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #ccc;
+          transition: 0.3s;
+          border-radius: 24px;
+        }
+        .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 18px;
+          width: 18px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: 0.3s;
+          border-radius: 50%;
+        }
+        input:checked + .toggle-slider {
+          background-color: #dc2626;
+        }
+        input:checked + .toggle-slider:before {
+          transform: translateX(26px);
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -475,7 +543,8 @@ export default function AssetTypesPage() {
                 </h1>
               </div>
               <p className="text-gray-500 ml-14 pl-0.5 text-sm font-normal">
-                Manage specific asset models like Dell Latitude 5440, Toyota Fortuner, etc.
+                Manage specific asset models like Dell Latitude 5440, Toyota
+                Fortuner, etc.
               </p>
             </div>
 
@@ -499,71 +568,77 @@ export default function AssetTypesPage() {
             </button>
           </div>
 
-          {/* ─── Stats ─── */}
+          {/* ─── STATS ─── */}
           {!loading && types.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 fade-in-up">
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
+            <div className="stats-grid fade-in-up mb-6">
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center flex-shrink-0">
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="#dc2626"
                     strokeWidth="1.8"
-                  >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {types.filter(t => t.is_active !== false).length}
-                  </p>
-                  <p className="text-sm font-medium text-gray-500">Active Types</p>
-                </div>
-              </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#6b7280"
-                    strokeWidth="1.8"
-                  >
-                    <path d="M12 8v4l3 3" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {types.filter(t => t.is_active === false).length}
-                  </p>
-                  <p className="text-sm font-medium text-gray-500">Deactivated</p>
-                </div>
-              </div>
-              <div className="stat-card p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-100 to-amber-50 flex items-center justify-center">
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#d97706"
-                    strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
                   >
                     <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
                     <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-gray-800">
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {activeCount}
+                  </p>
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
+                    Active Types
+                  </p>
+                </div>
+              </div>
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#6b7280"
+                    strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
+                  >
+                    <path d="M12 8v4l3 3" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
+                    {deactivatedCount}
+                  </p>
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
+                    Deactivated Types
+                  </p>
+                </div>
+              </div>
+              <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center flex-shrink-0">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#6b7280"
+                    strokeWidth="1.8"
+                    className="sm:w-5.5 sm:h-5.5"
+                  >
+                    <path d="M12 8v4l3 3" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xl sm:text-3xl font-bold text-gray-800">
                     {categories.length}
                   </p>
-                  <p className="text-sm font-medium text-gray-500">Categories</p>
+                  <p className="text-[10px] sm:text-sm font-medium text-gray-500">
+                    Categories
+                  </p>
                 </div>
               </div>
             </div>
@@ -604,8 +679,25 @@ export default function AssetTypesPage() {
                 ))}
               </select>
             </div>
-            <div className="text-sm text-gray-500 font-normal">
-              {filteredTypes.length} {filteredTypes.length === 1 ? 'type' : 'types'} found
+            <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+              <span
+                className={`text-sm font-medium ${!showDeactivated ? "text-red-600" : "text-gray-500"}`}
+              >
+                Active
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={showDeactivated}
+                  onChange={() => setShowDeactivated(!showDeactivated)}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+              <span
+                className={`text-sm font-medium ${showDeactivated ? "text-red-600" : "text-gray-500"}`}
+              >
+                Deactivated
+              </span>
             </div>
           </div>
 
@@ -633,22 +725,31 @@ export default function AssetTypesPage() {
                   <tbody>
                     {filteredTypes.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="text-center py-12 text-gray-500 text-sm font-normal">
+                        <td
+                          colSpan={5}
+                          className="text-center py-12 text-gray-500 text-sm font-normal"
+                        >
                           {searchTerm || selectedCategoryFilter
                             ? "No types match your filters"
-                            : "No asset types found. Create your first type!"}
+                            : showDeactivated
+                              ? "No deactivated types found"
+                              : "No asset types found. Create your first type!"}
                         </td>
                       </tr>
                     ) : (
                       filteredTypes.map((type) => (
                         <tr key={type.id}>
-                          <td className="font-semibold text-gray-900">{type.name}</td>
+                          <td className="font-semibold text-gray-900">
+                            {type.name}
+                          </td>
                           <td>
                             <span className="category-badge">
                               {getCategoryName(type.category_id)}
                             </span>
                           </td>
-                          <td className="text-gray-600">{type.description || "—"}</td>
+                          <td className="text-gray-600">
+                            {type.description || "—"}
+                          </td>
                           <td>
                             <span
                               className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
@@ -657,7 +758,9 @@ export default function AssetTypesPage() {
                                   : "bg-gray-100 text-gray-500"
                               }`}
                             >
-                              {type.is_active !== false ? "Active" : "Deactivated"}
+                              {type.is_active !== false
+                                ? "Active"
+                                : "Deactivated"}
                             </span>
                           </td>
                           <td>
@@ -667,21 +770,37 @@ export default function AssetTypesPage() {
                                 className="action-btn edit"
                                 title="Edit"
                               >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
                                   <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                                   <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                                 </svg>
                               </button>
-                              <button
-                                onClick={() => openDeleteConfirm(type)}
-                                className="action-btn delete"
-                                title="Deactivate"
-                              >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M3 6h18" />
-                                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                                </svg>
-                              </button>
+                              {type.is_active !== false && (
+                                <button
+                                  onClick={() => openDeleteConfirm(type)}
+                                  className="action-btn delete"
+                                  title="Deactivate"
+                                >
+                                  <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M3 6h18" />
+                                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -695,252 +814,377 @@ export default function AssetTypesPage() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: Create Asset Type Modal ─── */}
+      {/* ─── CREATE ASSET TYPE MODAL ─── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
-
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">Create Asset Type</h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Add a new asset model</p>
-                </div>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Create Asset Type
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Add a new asset model
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateType}>
+              <div className="modal-grid-2">
+                {/* Category */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📂</span>
+                    <select
+                      value={formData.category_id}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          category_id: e.target.value,
+                        });
+                        if (formErrors.category_id)
+                          setFormErrors({ ...formErrors, category_id: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                        formErrors.category_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                    >
+                      <option value="">Select a category</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {formErrors.category_id && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.category_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Type Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Type Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏷️</span>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value });
+                        if (formErrors.name)
+                          setFormErrors({ ...formErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        formErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Dell Latitude 5440"
+                    />
+                  </div>
+                  {formErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.name}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description - full width */}
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          description: e.target.value,
+                        });
+                        if (formErrors.description)
+                          setFormErrors({ ...formErrors, description: "" });
+                      }}
+                      rows={3}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        formErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                  {formErrors.description && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {formErrors.description}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <form onSubmit={handleCreateType}>
-                <div className="modal-grid-2">
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Category <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📂</span>
-                      <select
-                        value={formData.category_id}
-                        onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select a category</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Type Name */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Type Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏷️</span>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        required
-                        autoComplete="off"
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Dell Latitude 5440"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={formData.description}
-                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        rows={3}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Optional description"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating...
-                      </>
-                    ) : (
-                      "Create Type"
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Type"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Edit Asset Type Modal ─── */}
+      {/* ─── EDIT ASSET TYPE MODAL ─── */}
       {showEditModal && selectedType && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div> */}
-
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">Edit Asset Type</h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">Update type details</p>
-                </div>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Edit Asset Type
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  Update type details
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateType}>
+              <div className="modal-grid-2">
+                {/* Category */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">📂</span>
+                    <select
+                      value={editFormData.category_id}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          category_id: e.target.value,
+                        });
+                        if (editErrors.category_id)
+                          setEditErrors({ ...editErrors, category_id: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white text-gray-800 text-sm font-normal ${
+                        editErrors.category_id
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                    >
+                      <option value="">Select a category</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {editErrors.category_id && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.category_id}
+                    </p>
+                  )}
+                </div>
+
+                {/* Type Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Type Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏷️</span>
+                    <input
+                      type="text"
+                      value={editFormData.name}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          name: e.target.value,
+                        });
+                        if (editErrors.name)
+                          setEditErrors({ ...editErrors, name: "" });
+                      }}
+                      required
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.name
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Dell Latitude 5440"
+                    />
+                  </div>
+                  {editErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.name}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description - full width */}
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={editFormData.description}
+                      onChange={(e) => {
+                        setEditFormData({
+                          ...editFormData,
+                          description: e.target.value,
+                        });
+                        if (editErrors.description)
+                          setEditErrors({ ...editErrors, description: "" });
+                      }}
+                      rows={3}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${
+                        editErrors.description
+                          ? "border-red-500 focus:ring-red-400/50"
+                          : "border-gray-200 focus:ring-amber-400/50"
+                      }`}
+                      placeholder="Optional description"
+                    />
+                  </div>
+                  {editErrors.description && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editErrors.description}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <form onSubmit={handleUpdateType}>
-                <div className="modal-grid-2">
-                  {/* Category */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Category <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">📂</span>
-                      <select
-                        value={editFormData.category_id}
-                        onChange={(e) => setEditFormData({ ...editFormData, category_id: e.target.value })}
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all bg-white text-gray-800 text-sm font-normal"
-                      >
-                        <option value="">Select a category</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Type Name */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Type Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏷️</span>
-                      <input
-                        type="text"
-                        value={editFormData.name}
-                        onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
-                        required
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Dell Latitude 5440"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Description - full width */}
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={editFormData.description}
-                        onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
-                        rows={3}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Optional description"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowEditModal(false)}
-                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
-                  >
-                    {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Updating...
-                      </>
-                    ) : (
-                      "Update Type"
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Type"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Delete Confirmation ─── */}
+      {/* ─── DELETE CONFIRMATION ─── */}
       {showDeleteConfirm && selectedType && (
-        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="modal-content delete-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2">
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#dc2626"
+                  strokeWidth="2"
+                >
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Deactivate Asset Type?</h3>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">
+                Deactivate Asset Type?
+              </h3>
               <p className="text-gray-500 text-sm mb-2 font-normal">
                 Are you sure you want to deactivate{" "}
-                <span className="font-semibold text-gray-700">{selectedType.name}</span>?
+                <span className="font-semibold text-gray-700">
+                  {selectedType.name}
+                </span>
+                ?
               </p>
               <p className="text-xs text-gray-400 mb-4 font-normal">
-                This will hide the type from active lists. Existing assets will not be affected.
+                This will hide the type from active lists. Existing assets will
+                not be affected.
               </p>
               <div className="flex gap-3">
                 <button

@@ -2,7 +2,11 @@ import axios from "axios";
 import toast from "react-hot-toast";
 
 const api = axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
 api.interceptors.request.use(
@@ -13,33 +17,59 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error),
 );
 
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (!error.response) {
+      toast.error("Network error. Please check your connection.");
+      return Promise.reject(error);
+    }
+
+    const status = error.response.status;
+    const message = error.response?.data?.detail || error.message;
+
+    if (status === 401) {
       localStorage.removeItem("access_token");
-      toast.error("Session expired. Please login again.");
-      window.location.href = "/login";
-    }
-    
-    if (error.response?.status === 403) {
-      const errorMessage = error.response?.data?.detail || "";
-      if (errorMessage.toLowerCase().includes("subscription") || 
-          errorMessage.toLowerCase().includes("expired")) {
-        toast.error("Your subscription has expired. Please contact support.");
-        window.location.href = "/subscription-expired";
+
+      if (typeof window !== "undefined") {
+        const isLoginPage = window.location.pathname.includes("/login");
+        if (!isLoginPage) {
+          toast.error("Session expired. Please login again.");
+          window.location.href = "/login";
+        }
       }
+      return Promise.reject(error);
     }
-    
+
+    if (status === 403) {
+      const errorMsg = message.toLowerCase();
+      if (errorMsg.includes("subscription") || errorMsg.includes("expired")) {
+        toast.error("Your subscription has expired. Please contact support.");
+        if (typeof window !== "undefined") {
+          window.location.href = "/subscription-expired";
+        }
+      } else {
+        toast.error("You don't have permission to perform this action.");
+      }
+      return Promise.reject(error);
+    }
+
+    if (status === 422) {
+      toast.error(message);
+      return Promise.reject(error);
+    }
+
+    if (status >= 500) {
+      toast.error("Server error. Please try again later.");
+      return Promise.reject(error);
+    }
+
+    toast.error(message);
     return Promise.reject(error);
-  }
+  },
 );
 
 export default api;

@@ -30,7 +30,6 @@ interface Permission {
 
 type ViewMode = "table" | "grid";
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
 const getUserRoleFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -43,7 +42,6 @@ const getUserRoleFromToken = () => {
   }
 };
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
 const getClientIdFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -56,7 +54,6 @@ const getClientIdFromToken = () => {
   }
 };
 
-// ─── Helper: Export to CSV ──────────────────────────────────────────────────
 const exportToCSV = (data: Role[], filename: string) => {
   const headers = ["Role Name", "Description", "Client ID", "Status"];
   const rows = data.map((r) => [
@@ -80,7 +77,6 @@ const exportToCSV = (data: Role[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// ─── Helper: Export to Excel ────────────────────────────────────────────────
 const exportToExcel = (data: Role[], filename: string) => {
   const headers = ["Role Name", "Description", "Client ID", "Status"];
   const rows = data.map((r) => [
@@ -131,7 +127,6 @@ export default function RolesPage() {
     "all" | "active" | "deactivated"
   >("all");
 
-  // New role form state
   const [newRole, setNewRole] = useState({
     name: "",
     description: "",
@@ -142,12 +137,10 @@ export default function RolesPage() {
 
   const exportButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Get user info (only on client)
   const [isAdmin, setIsAdmin] = useState(false);
   const [isClientAdmin, setIsClientAdmin] = useState(false);
   const [clientId, setClientId] = useState("");
 
-  // ─── Set mounted state and user info ─────────────────────────────────────
   useEffect(() => {
     setMounted(true);
     const role = getUserRoleFromToken();
@@ -157,7 +150,6 @@ export default function RolesPage() {
     return () => setMounted(false);
   }, []);
 
-  // ─── Position dropdown when it opens ──────────────────────────────────────
   useEffect(() => {
     if (showExportDropdown && exportButtonRef.current) {
       const rect = exportButtonRef.current.getBoundingClientRect();
@@ -170,7 +162,6 @@ export default function RolesPage() {
     }
   }, [showExportDropdown]);
 
-  // ─── Redirect if not ADMIN or CLIENT_ADMIN ────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
     const token = localStorage.getItem("access_token");
@@ -185,7 +176,6 @@ export default function RolesPage() {
     }
   }, [router, isAdmin, isClientAdmin, mounted]);
 
-  // ─── Fetch Roles with client filtering ────────────────────────────────────
   const fetchRoles = useCallback(async () => {
     try {
       setLoading(true);
@@ -203,7 +193,6 @@ export default function RolesPage() {
     }
   }, [isClientAdmin, clientId]);
 
-  // ─── Fetch Services ────────────────────────────────────────────────────────
   const fetchServices = useCallback(async () => {
     try {
       let url = "/services";
@@ -218,7 +207,6 @@ export default function RolesPage() {
     }
   }, [isClientAdmin, clientId]);
 
-  // ─── Fetch Permissions for a Role ─────────────────────────────────────────
   const fetchRolePermissions = async (roleId: string) => {
     try {
       setLoadingPermissions(true);
@@ -252,7 +240,8 @@ export default function RolesPage() {
     }
   };
 
-  // ─── Initial data fetch ────────────────────────────────────────────────────
+  // Fetch roles and services when the component mounts and when the user role changes
+
   useEffect(() => {
     if (mounted && (isAdmin || isClientAdmin)) {
       fetchRoles();
@@ -260,14 +249,14 @@ export default function RolesPage() {
     }
   }, [fetchRoles, fetchServices, mounted, isAdmin, isClientAdmin]);
 
-  // ─── When a role is selected, fetch its permissions ──────────────────────
+  // When a role is selected, fetch its permissions
+
   useEffect(() => {
     if (selectedRole && services.length > 0) {
       fetchRolePermissions(selectedRole.id);
     }
   }, [selectedRole, services]);
 
-  // ─── Create New Role ──────────────────────────────────────────────────────
   const handleCreateRole = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -301,7 +290,6 @@ export default function RolesPage() {
     }
   };
 
-  // ─── Update Permissions ────────────────────────────────────────────────────
   const handleUpdatePermissions = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRole) return;
@@ -324,7 +312,6 @@ export default function RolesPage() {
     }
   };
 
-  // ─── Reset Permissions to Default ────────────────────────────────────────
   const handleResetPermissions = () => {
     const resetPermissions = services.map((service) => ({
       service_id: service.id,
@@ -337,7 +324,6 @@ export default function RolesPage() {
     toast.success("Permissions reset to default");
   };
 
-  // ─── Deactivate Role ──────────────────────────────────────────────────────
   const handleDeactivateRole = async () => {
     if (!selectedRole) return;
     setSubmitting(true);
@@ -354,7 +340,6 @@ export default function RolesPage() {
     }
   };
 
-  // ─── Restore Role ──────────────────────────────────────────────────────────
   const handleRestoreRole = async () => {
     if (!selectedRole) return;
     setSubmitting(true);
@@ -371,7 +356,6 @@ export default function RolesPage() {
     }
   };
 
-  // ─── Handle Permission Checkbox Change ────────────────────────────────────
   const handlePermissionChange = (
     serviceId: string,
     field: keyof Omit<Permission, "service_id">,
@@ -384,7 +368,6 @@ export default function RolesPage() {
     );
   };
 
-  // ─── Export Handlers ──────────────────────────────────────────────────────
   const handleExportCSV = () => {
     exportToCSV(
       filteredRoles,
@@ -403,7 +386,6 @@ export default function RolesPage() {
     toast.success("Excel exported successfully");
   };
 
-  // ─── Filter roles ─────────────────────────────────────────────────────────
   const filteredRoles = roles.filter((role) => {
     const matchesSearch =
       role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -425,7 +407,6 @@ export default function RolesPage() {
     grid: "📊 Grid",
   };
 
-  // Show loading while checking auth
   if (!mounted) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -462,6 +443,7 @@ export default function RolesPage() {
           justify-content: center;
           z-index: 1000;
           animation: fadeInUp 0.25s ease;
+          padding: 16px;
         }
         .modal-content {
           background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
@@ -472,7 +454,13 @@ export default function RolesPage() {
           overflow-y: auto;
           animation: fadeInScale 0.35s cubic-bezier(0.2, 0.9, 0.4, 1.2);
           box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 38, 38, 0.08);
-          padding: 28px 32px 32px;
+          padding: 24px 20px 28px;
+        }
+
+        @media (min-width: 640px) {
+          .modal-content {
+            padding: 28px 32px 32px;
+          }
         }
 
         .modal-content::-webkit-scrollbar {
@@ -543,11 +531,41 @@ export default function RolesPage() {
           opacity: 0.9;
         }
 
+        /* Table with horizontal scroll - ONLY the table scrolls */
+        .table-wrapper {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scroll-behavior: smooth;
+        }
+        
+        .table-wrapper::-webkit-scrollbar {
+          height: 8px;
+        }
+        .table-wrapper::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 20px;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb {
+          background: linear-gradient(90deg, #dc2626, #ef4444);
+          border-radius: 20px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        .table-wrapper::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(90deg, #b91c1c, #dc2626);
+        }
+
         .role-table {
           width: 100%;
           border-collapse: collapse;
           font-size: 14px;
           font-weight: 400;
+          min-width: 700px;
+        }
+        @media (min-width: 1024px) {
+          .role-table {
+            min-width: auto;
+          }
         }
         .role-table thead th {
           text-align: left;
@@ -576,6 +594,19 @@ export default function RolesPage() {
         }
         .role-table tbody tr:active {
           background: #fecaca;
+        }
+
+        .role-table .description-cell {
+          max-width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        @media (min-width: 1024px) {
+          .role-table .description-cell {
+            max-width: none;
+            white-space: normal;
+          }
         }
 
         .view-toggle-btn {
@@ -623,12 +654,19 @@ export default function RolesPage() {
 
         .modal-grid-2 {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 18px 24px;
+          grid-template-columns: 1fr;
+          gap: 16px;
+        }
+        @media (min-width: 640px) {
+          .modal-grid-2 {
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 24px;
+          }
         }
         .modal-grid-2 .full-width {
           grid-column: 1 / -1;
         }
+        
         .input-icon-wrapper {
           position: relative;
         }
@@ -646,6 +684,7 @@ export default function RolesPage() {
         .input-icon-wrapper textarea,
         .input-icon-wrapper select {
           padding-left: 42px;
+          padding-right: 12px;
         }
         .input-icon-wrapper textarea {
           padding-top: 12px;
@@ -656,6 +695,19 @@ export default function RolesPage() {
         .input-icon-wrapper .icon-top {
           top: 16px;
           transform: none;
+        }
+
+        /* Responsive action buttons */
+        .action-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        @media (min-width: 640px) {
+          .action-buttons {
+            flex-direction: row;
+            gap: 12px;
+          }
         }
       `}</style>
 
@@ -789,9 +841,9 @@ export default function RolesPage() {
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Stats Cards - Compact */}
           {!loading && roles.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6 fade-in-up">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6 fade-in-up">
               <div className="stat-card p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
                   <svg
@@ -961,7 +1013,7 @@ export default function RolesPage() {
 
               {viewMode === "table" && (
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
-                  <div className="overflow-x-auto">
+                  <div className="table-wrapper">
                     <table className="role-table">
                       <thead>
                         <tr>
@@ -985,32 +1037,32 @@ export default function RolesPage() {
                         ) : (
                           filteredRoles.map((role) => (
                             <tr key={role.id}>
-                              <td className="font-semibold text-gray-900">
+                              <td className="font-semibold text-gray-900 whitespace-nowrap">
                                 {role.name}
                               </td>
-                              <td className="text-gray-600">
+                              <td className="description-cell text-gray-600">
                                 {role.description || "—"}
                               </td>
                               {isAdmin && (
-                                <td className="text-gray-600 text-sm font-mono">
+                                <td className="text-gray-600 text-sm font-mono whitespace-nowrap">
                                   {role.client_id || "—"}
                                 </td>
                               )}
-                              <td>
+                              <td className="whitespace-nowrap">
                                 <span
                                   className={`px-2.5 py-1 rounded-full text-xs font-semibold ${role.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
                                 >
                                   {role.is_active ? "Active" : "Deactivated"}
                                 </span>
                               </td>
-                              <td>
-                                <div className="flex gap-2">
+                              <td className="whitespace-nowrap">
+                                <div className="action-buttons">
                                   <button
                                     onClick={() => {
                                       setSelectedRole(role);
                                       setShowEditModal(true);
                                     }}
-                                    className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                                    className="text-blue-600 hover:text-blue-800 text-sm font-semibold whitespace-nowrap"
                                   >
                                     Edit Permissions
                                   </button>
@@ -1020,7 +1072,7 @@ export default function RolesPage() {
                                         setSelectedRole(role);
                                         setShowDeleteConfirm(true);
                                       }}
-                                      className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                                      className="text-red-600 hover:text-red-800 text-sm font-semibold whitespace-nowrap"
                                     >
                                       Deactivate
                                     </button>
@@ -1030,7 +1082,7 @@ export default function RolesPage() {
                                         setSelectedRole(role);
                                         setShowRestoreConfirm(true);
                                       }}
-                                      className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                                      className="text-green-600 hover:text-green-800 text-sm font-semibold whitespace-nowrap"
                                     >
                                       Restore
                                     </button>
@@ -1074,280 +1126,270 @@ export default function RolesPage() {
         </div>
       </div>
 
-      {/* ─── ENHANCED: Create Role Modal ─── */}
+      {/* ─── Create Role Modal ─── */}
       {showCreateModal && (
         <div
           className="modal-overlay"
           onClick={() => setShowCreateModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              {/* <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-400/60 via-red-300/40 to-red-400/60 rounded-t-2xl"></div> */}
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Create New Role
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  {isClientAdmin
+                    ? "Create a role for your organization"
+                    : "Create a new role"}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setNewRole({ name: "", description: "" });
+                  setNewRoleErrors({ name: "" });
+                }}
+                className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Create New Role
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    {isClientAdmin
-                      ? "Create a role for your organization"
-                      : "Create a new role"}
-                  </p>
+            <form onSubmit={handleCreateRole}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Role Name <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🏷️</span>
+                    <input
+                      type="text"
+                      value={newRole.name}
+                      onChange={(e) => {
+                        setNewRole({ ...newRole, name: e.target.value });
+                        if (e.target.value.trim()) {
+                          setNewRoleErrors({ ...newRoleErrors, name: "" });
+                        }
+                      }}
+                      required
+                      autoComplete="off"
+                      className={`w-full px-4 py-2.5 pl-10 border ${newRoleErrors.name ? "border-red-500 focus:ring-red-500/50" : "border-gray-200 focus:ring-red-400/50"} rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal`}
+                      placeholder="Asset Manager"
+                    />
+                  </div>
+                  {newRoleErrors.name && (
+                    <p className="text-red-500 text-xs mt-1.5 ml-1 font-normal">
+                      {newRoleErrors.name}
+                    </p>
+                  )}
                 </div>
+
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Description
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon icon-top">📝</span>
+                    <textarea
+                      value={newRole.description}
+                      onChange={(e) =>
+                        setNewRole({
+                          ...newRole,
+                          description: e.target.value,
+                        })
+                      }
+                      rows={3}
+                      className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
+                      placeholder="Describe the purpose of this role..."
+                    />
+                  </div>
+                </div>
+
+                {isClientAdmin && clientId && (
+                  <div className="full-width">
+                    <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
+                      <p className="text-sm text-gray-500 font-normal">
+                        <span className="font-semibold">Organization:</span>{" "}
+                        This role will be created for your client
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowCreateModal(false);
                     setNewRole({ name: "", description: "" });
                     setNewRoleErrors({ name: "" });
                   }}
-                  className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+                  className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Role"
+                  )}
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
 
-              <form onSubmit={handleCreateRole}>
-                <div className="modal-grid-2">
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Role Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon">🏷️</span>
-                      <input
-                        type="text"
-                        value={newRole.name}
-                        onChange={(e) => {
-                          setNewRole({ ...newRole, name: e.target.value });
-                          if (e.target.value.trim()) {
-                            setNewRoleErrors({ ...newRoleErrors, name: "" });
-                          }
-                        }}
-                        required
-                        autoComplete="off"
-                        className={`w-full px-4 py-2.5 pl-10 border ${newRoleErrors.name ? "border-red-500 focus:ring-red-500/50" : "border-gray-200 focus:ring-red-400/50"} rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal`}
-                        placeholder="Asset Manager"
-                      />
-                    </div>
-                    {newRoleErrors.name && (
-                      <p className="text-red-500 text-xs mt-1.5 ml-1 font-normal">
-                        {newRoleErrors.name}
-                      </p>
-                    )}
-                  </div>
+      {/* ─── Edit Permissions Modal ─── */}
+      {showEditModal && selectedRole && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">
+                  Edit Permissions: {selectedRole.name}
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5 font-normal">
+                  {selectedRole.description || "No description"}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
 
-                  <div className="full-width">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                      Description
-                    </label>
-                    <div className="input-icon-wrapper">
-                      <span className="icon icon-top">📝</span>
-                      <textarea
-                        value={newRole.description}
-                        onChange={(e) =>
-                          setNewRole({
-                            ...newRole,
-                            description: e.target.value,
-                          })
-                        }
-                        rows={3}
-                        className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-all resize-none input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal"
-                        placeholder="Describe the purpose of this role..."
-                      />
-                    </div>
-                  </div>
-
-                  {isClientAdmin && clientId && (
-                    <div className="full-width">
-                      <div className="bg-gray-50 rounded-xl p-3 text-center border border-gray-200">
-                        <p className="text-sm text-gray-500 font-normal">
-                          <span className="font-semibold">Organization:</span>{" "}
-                          This role will be created for your client
-                        </p>
-                      </div>
-                    </div>
+            {loadingPermissions ? (
+              <div className="flex justify-center items-center py-12">
+                <div className="w-8 h-8 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
+              </div>
+            ) : (
+              <form onSubmit={handleUpdatePermissions}>
+                <div className="border border-gray-200 rounded-xl p-4 max-h-96 overflow-y-auto">
+                  {services.length === 0 ? (
+                    <p className="text-center text-gray-500 text-sm font-normal py-8">
+                      {isClientAdmin
+                        ? "No services subscribed to your organization"
+                        : "No services available"}
+                    </p>
+                  ) : (
+                    services.map((service) => {
+                      const perm = permissions.find(
+                        (p) => p.service_id === service.id,
+                      );
+                      return (
+                        <div
+                          key={service.id}
+                          className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-lg transition-all"
+                        >
+                          <span className="text-sm font-medium text-gray-700 min-w-[120px] mb-2 sm:mb-0">
+                            {service.name}
+                          </span>
+                          <div className="flex flex-wrap gap-3 sm:gap-4">
+                            {[
+                              "can_create",
+                              "can_read",
+                              "can_update",
+                              "can_delete",
+                            ].map((field) => (
+                              <label
+                                key={field}
+                                className="flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={!!perm?.[field as keyof Permission]}
+                                  onChange={(e) =>
+                                    handlePermissionChange(
+                                      service.id,
+                                      field as keyof Omit<
+                                        Permission,
+                                        "service_id"
+                                      >,
+                                      e.target.checked,
+                                    )
+                                  }
+                                  className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                                />
+                                <span className="text-xs text-gray-600 font-medium">
+                                  {field.replace("can_", "").toUpperCase()}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
 
-                <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowCreateModal(false);
-                      setNewRole({ name: "", description: "" });
-                      setNewRoleErrors({ name: "" });
-                    }}
-                    className="cursor-pointer flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm"
+                    onClick={handleResetPermissions}
+                    className="px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm order-2 sm:order-1"
+                  >
+                    Reset to Default
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm order-1 sm:order-2"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="cursor-pointer flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
+                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md order-3"
                   >
                     {submitting ? (
-                      <>
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
-                        Creating...
-                      </>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      "Create Role"
+                      "Save Permissions"
                     )}
                   </button>
                 </div>
               </form>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ─── ENHANCED: Edit Permissions Modal ─── */}
-      {showEditModal && selectedRole && (
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="relative">
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400/60 via-amber-300/40 to-amber-400/60 rounded-t-2xl"></div>
-
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800">
-                    Edit Permissions: {selectedRole.name}
-                  </h2>
-                  <p className="text-sm text-gray-400 mt-0.5 font-normal">
-                    {selectedRole.description || "No description"}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-
-              {loadingPermissions ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="w-8 h-8 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
-                </div>
-              ) : (
-                <form onSubmit={handleUpdatePermissions}>
-                  <div className="border border-gray-200 rounded-xl p-4 max-h-96 overflow-y-auto">
-                    {services.length === 0 ? (
-                      <p className="text-center text-gray-500 text-sm font-normal py-8">
-                        {isClientAdmin
-                          ? "No services subscribed to your organization"
-                          : "No services available"}
-                      </p>
-                    ) : (
-                      services.map((service) => {
-                        const perm = permissions.find(
-                          (p) => p.service_id === service.id,
-                        );
-                        return (
-                          <div
-                            key={service.id}
-                            className="flex items-center justify-between p-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-lg transition-all"
-                          >
-                            <span className="text-sm font-medium text-gray-700 min-w-[120px]">
-                              {service.name}
-                            </span>
-                            <div className="flex gap-4">
-                              {[
-                                "can_create",
-                                "can_read",
-                                "can_update",
-                                "can_delete",
-                              ].map((field) => (
-                                <label
-                                  key={field}
-                                  className="flex items-center gap-1.5 cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      !!perm?.[field as keyof Permission]
-                                    }
-                                    onChange={(e) =>
-                                      handlePermissionChange(
-                                        service.id,
-                                        field as keyof Omit<
-                                          Permission,
-                                          "service_id"
-                                        >,
-                                        e.target.checked,
-                                      )
-                                    }
-                                    className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                                  />
-                                  <span className="text-xs text-gray-600 font-medium">
-                                    {field.replace("can_", "").toUpperCase()}
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  <div className="flex gap-3 pt-4">
-                    <button
-                      type="button"
-                      onClick={handleResetPermissions}
-                      className="px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm"
-                    >
-                      Reset to Default
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowEditModal(false)}
-                      className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 font-semibold text-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md"
-                    >
-                      {submitting ? (
-                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        "Save Permissions"
-                      )}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── ENHANCED: Delete Confirmation Modal ─── */}
+      {/* ─── Delete Confirmation Modal ─── */}
       {showDeleteConfirm && selectedRole && (
         <div
           className="modal-overlay"
@@ -1406,7 +1448,7 @@ export default function RolesPage() {
         </div>
       )}
 
-      {/* ─── ENHANCED: Restore Confirmation Modal ─── */}
+      {/* ─── Restore Confirmation Modal ─── */}
       {showRestoreConfirm && selectedRole && (
         <div
           className="modal-overlay"
