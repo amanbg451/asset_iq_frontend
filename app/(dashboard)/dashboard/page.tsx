@@ -212,6 +212,21 @@ const Icon = React.memo(function Icon({
       </>
     ),
     check: <polyline points="20 6 9 17 4 12" />,
+    users: (
+      <>
+        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 00-3-3.87" />
+        <path d="M16 3.13a4 4 0 010 7.75" />
+      </>
+    ),
+    box: (
+      <>
+        <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+        <line x1="12" y1="22.08" x2="12" y2="12" />
+      </>
+    ),
   };
   return (
     <svg
@@ -229,18 +244,6 @@ const Icon = React.memo(function Icon({
   );
 });
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
-const getClientIdFromToken = () => {
-  const token = localStorage.getItem("access_token");
-  if (!token) return "";
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.client_id || "";
-  } catch {
-    return "";
-  }
-};
-
 // ─── Helper: Get user role from JWT token ───────────────────────────────────
 const getUserRoleFromToken = () => {
   const token = localStorage.getItem("access_token");
@@ -250,6 +253,30 @@ const getUserRoleFromToken = () => {
     return payload.role || "";
   } catch {
     return "";
+  }
+};
+
+// ─── Helper: Get client_id from JWT token ───────────────────────────────────
+const getClientIdFromToken = () => {
+  const token = localStorage.getItem("access_token");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.client_id || null;
+  } catch {
+    return null;
+  }
+};
+
+// ─── Helper: Get department_id from JWT token ──────────────────────────────
+const getDepartmentIdFromToken = () => {
+  const token = localStorage.getItem("access_token");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.department_id || null;
+  } catch {
+    return null;
   }
 };
 
@@ -264,53 +291,106 @@ interface DashboardStats {
   enabledServices: Array<{ id: string; name: string; code: string }>;
   subscriptionStatus: string;
   subscriptionEndsAt: string | null;
+  assets: {
+    total: number;
+    assigned: number;
+    unassigned: number;
+    tagged: number;
+    not_tagged: number;
+    active: number;
+    inactive: number;
+    damaged: number;
+    under_maintenance: number;
+    lost: number;
+  };
 }
 
-// ─── Platform Admin Stats (from API) ─────────────────────────────────────────
-const ADMIN_STATS_CONFIG = [
-  {
-    label: "Total Clients",
-    key: "totalClients",
-    icon: "tag",
-    accent: "#c0152a",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: "Active Clients",
-    key: "activeClients",
-    icon: "gps",
-    accent: "#10b981",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: "Active Subscriptions",
-    key: "activeSubscriptions",
-    icon: "clipboard",
-    accent: "#0ea5e9",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: "Total Services",
-    key: "totalServices",
-    icon: "tag",
-    accent: "#8b5cf6",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: "Total Users",
-    key: "totalUsers",
-    icon: "gps",
-    accent: "#f59e0b",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-  {
-    label: "Total Departments",
-    key: "totalDepartments",
-    icon: "clipboard",
-    accent: "#ef4444",
-    spark: [0, 0, 0, 0, 0, 0, 0],
-  },
-];
+// ─── Dashboard Response Types ────────────────────────────────────────────────
+interface PlatformDashboardResponse {
+  level: "platform";
+  summary: {
+    clients: { total: number; active: number; inactive: number };
+    subscriptions: { total: number; active: number; expired: number };
+    users: { total: number; client_admins: number; managers: number; users: number };
+    departments: { total: number };
+    assets: {
+      total: number;
+      assigned: number;
+      unassigned: number;
+      tagged: number;
+      not_tagged: number;
+      active: number;
+      inactive: number;
+      damaged: number;
+      under_maintenance: number;
+      lost: number;
+    };
+  };
+  recent_clients: Array<{ id: string; name: string; client_code: string; is_active: boolean; created_at: string }>;
+  recent_subscriptions: Array<{ id: string; client_id: string; status: string; licence_count: number; used_licences: number; max_assets: number; max_departments: number; price: number; starts_at: string; ends_at: string; auto_renew: boolean; created_at: string }>;
+}
+
+interface ClientDashboardResponse {
+  level: "client";
+  client: { id: string; name: string; client_code: string; is_active: boolean; created_at: string };
+  summary: {
+    users: { total: number; client_admins: number; managers: number; users: number };
+    departments: { total: number };
+    assets: {
+      total: number;
+      assigned: number;
+      unassigned: number;
+      tagged: number;
+      not_tagged: number;
+      active: number;
+      inactive: number;
+      damaged: number;
+      under_maintenance: number;
+      lost: number;
+    };
+  };
+  subscription: {
+    id: string;
+    status: string;
+    licence_count: number;
+    used_licences: number;
+    available_licences: number;
+    usage_percentage: number;
+    max_assets: number;
+    max_departments: number;
+    price: number;
+    starts_at: string;
+    ends_at: string;
+    auto_renew: boolean;
+    created_at: string;
+  };
+  departments: Array<{ id: string; name: string; code: string; manager: string | null; total_users: number; total_assets: number; is_active: boolean }>;
+  recent_users: Array<{ id: string; full_name: string; email: string; role: string; department_id: string | null; created_at: string }>;
+  recent_assets: Array<{ id: string; name: string; serial_number: string; model: string; manufacturer: string; department_id: string; location_id: string; assigned_to_user_id: string; asset_condition: string; tag_state: string; current_latitude: number | null; current_longitude: number | null; latest_image_url: string; created_at: string }>;
+}
+
+interface DepartmentDashboardResponse {
+  level: "department";
+  department: { id: string; name: string; code: string; client_id: string; location_id: string | null; is_active: boolean };
+  manager: string | null;
+  summary: {
+    team: { total_members: number; managers: number; users: number };
+    assets: {
+      total: number;
+      assigned: number;
+      unassigned: number;
+      tagged: number;
+      not_tagged: number;
+      active: number;
+      inactive: number;
+      damaged: number;
+      under_maintenance: number;
+      lost: number;
+    };
+  };
+  team_members: Array<{ id: string; full_name: string; email: string; role: string; employee_id: string; profile_photo_url: string | null; created_at: string }>;
+  recent_assets: Array<{ id: string; name: string; serial_number: string; model: string; manufacturer: string; assigned_to_user_id: string; asset_condition: string; tag_state: string; location_id: string; current_latitude: number | null; current_longitude: number | null; latest_image_url: string; last_scanned_at: string | null; created_at: string }>;
+}
 
 const NOTIFICATIONS = [
   {
@@ -546,7 +626,11 @@ export default function DashboardPage() {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(true);
 
-  // ─── NEW: Real dashboard stats state ─────────────────────────────────────────
+  // ─── Dashboard state ─────────────────────────────────────────────────────────
+  const [dashboardLevel, setDashboardLevel] = useState<"platform" | "client" | "department" | "user">("platform");
+  const [dashboardData, setDashboardData] = useState<any>(null);
+
+  // ─── Stats derived from dashboard data ──────────────────────────────────────
   const [clientStats, setClientStats] = useState<DashboardStats>({
     departments: 0,
     managers: 0,
@@ -557,6 +641,18 @@ export default function DashboardPage() {
     enabledServices: [],
     subscriptionStatus: "",
     subscriptionEndsAt: null,
+    assets: {
+      total: 0,
+      assigned: 0,
+      unassigned: 0,
+      tagged: 0,
+      not_tagged: 0,
+      active: 0,
+      inactive: 0,
+      damaged: 0,
+      under_maintenance: 0,
+      lost: 0,
+    },
   });
 
   const [adminStats, setAdminStats] = useState({
@@ -573,7 +669,7 @@ export default function DashboardPage() {
 
   const unread = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
 
-  // ─── Fetch dashboard data using new endpoints ──────────────────────────────
+  // ─── Fetch dashboard data using unified endpoint ────────────────────────────
   const fetchDashboardData = useCallback(async () => {
     try {
       setDashboardLoading(true);
@@ -588,58 +684,135 @@ export default function DashboardPage() {
       setUserRole(role);
       setUserEmail(payload.email || payload.name || "");
 
-      // Determine which dashboard endpoint to call based on role
-      let endpoint = "";
+      // Build query parameters based on role and available data
+      const params = new URLSearchParams();
+      
+      // Get IDs from token
+      const clientId = payload.client_id || null;
+      const departmentId = payload.department_id || null;
+      const userId = payload.id || null;
+
+      // Determine which dashboard to fetch based on role and available IDs
+      // Priority: user_id > department_id > client_id > default
       if (role === "ADMIN") {
-        endpoint = "/dashboard/admin";
+        // Platform admin can view all, default is platform dashboard
+        // They can drill down using query params if needed
+        // For now, just use the default platform dashboard
+        // If we want to drill down, we would pass client_id, department_id, or user_id
       } else if (role === "CLIENT_ADMIN") {
-        endpoint = "/dashboard/client";
+        // Client admin can only see their own client
+        // Add client_id from token
+        if (clientId) {
+          params.append("client_id", clientId);
+        }
+        // They can also drill down to department if they have department_id
+        if (departmentId) {
+          params.append("department_id", departmentId);
+        }
       } else if (role === "MANAGER") {
-        endpoint = "/dashboard/manager";
-      } else {
-        // Fallback for other roles
-        endpoint = "/dashboard/client";
+        // Manager can only see their own department
+        if (departmentId) {
+          params.append("department_id", departmentId);
+        }
+      } else if (role === "USER") {
+        // User can only see their own dashboard
+        // For user dashboard, we don't add any params - it auto-detects from token
+        // Or we can add user_id if needed
       }
 
+      // Make the API call
+      const queryString = params.toString();
+      const endpoint = queryString ? `/dashboard?${queryString}` : "/dashboard";
+      
+      console.log("Fetching dashboard:", endpoint);
       const response = await api.get(endpoint);
       const data = response.data;
+      setDashboardData(data);
+      setDashboardLevel(data.level || "platform");
 
-      // Map API response to state based on role
-      if (role === "ADMIN") {
+      // ─── Map response based on level ──────────────────────────────────────────
+      if (data.level === "platform") {
+        const d = data as PlatformDashboardResponse;
         setAdminStats({
-          totalClients: data.total_clients || 0,
-          activeClients: data.active_clients || 0,
-          activeSubscriptions: data.active_subscriptions || 0,
-          totalServices: data.total_services || 0,
-          totalUsers: data.total_users || 0,
-          totalDepartments: data.total_departments || 0,
+          totalClients: d.summary.clients.total || 0,
+          activeClients: d.summary.clients.active || 0,
+          activeSubscriptions: d.summary.subscriptions.active || 0,
+          totalServices: 0, // Not provided in this endpoint
+          totalUsers: d.summary.users.total || 0,
+          totalDepartments: d.summary.departments.total || 0,
         });
-      } else if (role === "CLIENT_ADMIN") {
         setClientStats({
-          departments: data.total_departments || 0,
-          managers: data.total_managers || 0,
-          users: data.total_users || 0,
-          licencesUsed: data.subscription?.used_licences || 0,
-          licencesTotal: data.subscription?.licence_count || 0,
-          licenceRemaining:
-            (data.subscription?.licence_count || 0) -
-            (data.subscription?.used_licences || 0),
-          enabledServices: [], // Will be fetched separately if needed
-          subscriptionStatus: data.subscription?.status || "INACTIVE",
-          subscriptionEndsAt: data.subscription?.ends_at || null,
-        });
-      } else if (role === "MANAGER") {
-        // Manager stats - map to client stats structure for display
-        setClientStats({
-          departments: 1, // Manager belongs to one department
-          managers: 0,
-          users: data.total_team_members || 0,
+          departments: d.summary.departments.total || 0,
+          managers: d.summary.users.managers || 0,
+          users: d.summary.users.total || 0,
           licencesUsed: 0,
           licencesTotal: 0,
           licenceRemaining: 0,
           enabledServices: [],
           subscriptionStatus: "ACTIVE",
           subscriptionEndsAt: null,
+          assets: d.summary.assets || {
+            total: 0,
+            assigned: 0,
+            unassigned: 0,
+            tagged: 0,
+            not_tagged: 0,
+            active: 0,
+            inactive: 0,
+            damaged: 0,
+            under_maintenance: 0,
+            lost: 0,
+          },
+        });
+      } else if (data.level === "client") {
+        const d = data as ClientDashboardResponse;
+        setClientStats({
+          departments: d.summary.departments.total || 0,
+          managers: d.summary.users.managers || 0,
+          users: d.summary.users.total || 0,
+          licencesUsed: d.subscription?.used_licences || 0,
+          licencesTotal: d.subscription?.licence_count || 0,
+          licenceRemaining: d.subscription?.available_licences || 0,
+          enabledServices: [],
+          subscriptionStatus: d.subscription?.status || "INACTIVE",
+          subscriptionEndsAt: d.subscription?.ends_at || null,
+          assets: d.summary.assets || {
+            total: 0,
+            assigned: 0,
+            unassigned: 0,
+            tagged: 0,
+            not_tagged: 0,
+            active: 0,
+            inactive: 0,
+            damaged: 0,
+            under_maintenance: 0,
+            lost: 0,
+          },
+        });
+      } else if (data.level === "department") {
+        const d = data as DepartmentDashboardResponse;
+        setClientStats({
+          departments: 1,
+          managers: d.summary.team.managers || 0,
+          users: d.summary.team.total_members || 0,
+          licencesUsed: 0,
+          licencesTotal: 0,
+          licenceRemaining: 0,
+          enabledServices: [],
+          subscriptionStatus: "ACTIVE",
+          subscriptionEndsAt: null,
+          assets: d.summary.assets || {
+            total: 0,
+            assigned: 0,
+            unassigned: 0,
+            tagged: 0,
+            not_tagged: 0,
+            active: 0,
+            inactive: 0,
+            damaged: 0,
+            under_maintenance: 0,
+            lost: 0,
+          },
         });
       }
     } catch (error: any) {
@@ -703,33 +876,32 @@ export default function DashboardPage() {
           spark: [0, 0, 0, 0, 0, 0, adminStats.activeSubscriptions],
         },
         {
-          label: "Total Services",
-          value: adminStats.totalServices,
-          change: 0,
-          accent: "#10b981",
-          icon: "gps",
-          spark: [0, 0, 0, 0, 0, 0, adminStats.totalServices],
-        },
-        {
           label: "Total Users",
           value: adminStats.totalUsers,
           change: 0,
           accent: "#8b5cf6",
-          icon: "clipboard",
+          icon: "users",
           spark: [0, 0, 0, 0, 0, 0, adminStats.totalUsers],
         },
         {
           label: "Total Departments",
           value: adminStats.totalDepartments,
           change: 0,
+          accent: "#10b981",
+          icon: "box",
+          spark: [0, 0, 0, 0, 0, 0, adminStats.totalDepartments],
+        },
+        {
+          label: "Total Assets",
+          value: clientStats.assets.total,
+          change: 0,
           accent: "#ef4444",
           icon: "alertc",
-          spark: [0, 0, 0, 0, 0, 0, adminStats.totalDepartments],
+          spark: [0, 0, 0, 0, 0, 0, clientStats.assets.total],
         },
       ];
     }
 
-    // ─── NEW: Manager Stats ──────────────────────────────────────────────────────
     if (userRole === "MANAGER") {
       return [
         {
@@ -741,18 +913,34 @@ export default function DashboardPage() {
           spark: [0, 0, 0, 0, 0, 0, clientStats.users],
         },
         {
-          label: "Department Assets",
-          value: clientStats.departments,
+          label: "Total Assets",
+          value: clientStats.assets.total,
           change: 0,
           accent: "#0ea5e9",
           icon: "box",
-          spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
+          spark: [0, 0, 0, 0, 0, 0, clientStats.assets.total],
+        },
+        {
+          label: "Assigned Assets",
+          value: clientStats.assets.assigned,
+          change: 0,
+          accent: "#10b981",
+          icon: "gps",
+          spark: [0, 0, 0, 0, 0, 0, clientStats.assets.assigned],
+        },
+        {
+          label: "Active Assets",
+          value: clientStats.assets.active,
+          change: 0,
+          accent: "#f59e0b",
+          icon: "tag",
+          spark: [0, 0, 0, 0, 0, 0, clientStats.assets.active],
         },
       ];
     }
 
-    // Client Admin Stats
-    return [
+    // Client Admin or User Stats
+    const stats = [
       {
         label: "Departments",
         value: clientStats.departments,
@@ -762,46 +950,68 @@ export default function DashboardPage() {
         spark: [0, 0, 0, 0, 0, 0, clientStats.departments],
       },
       {
-        label: "Managers",
-        value: clientStats.managers,
-        change: 0,
-        accent: "#0ea5e9",
-        icon: "truck",
-        spark: [0, 0, 0, 0, 0, 0, clientStats.managers],
-      },
-      {
-        label: "Active Users",
+        label: "Total Users",
         value: clientStats.users,
         change: 0,
-        accent: "#10b981",
-        icon: "gps",
+        accent: "#0ea5e9",
+        icon: "users",
         spark: [0, 0, 0, 0, 0, 0, clientStats.users],
       },
       {
+        label: "Total Assets",
+        value: clientStats.assets.total,
+        change: 0,
+        accent: "#10b981",
+        icon: "box",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.assets.total],
+      },
+      {
+        label: "Assigned Assets",
+        value: clientStats.assets.assigned,
+        change: 0,
+        accent: "#8b5cf6",
+        icon: "clipboard",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.assets.assigned],
+      },
+      {
+        label: "Active Assets",
+        value: clientStats.assets.active,
+        change: 0,
+        accent: "#f59e0b",
+        icon: "gps",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.assets.active],
+      },
+      {
+        label: "Tagged Assets",
+        value: clientStats.assets.tagged,
+        change: 0,
+        accent: "#10b981",
+        icon: "check",
+        spark: [0, 0, 0, 0, 0, 0, clientStats.assets.tagged],
+      },
+    ];
+
+    // Add licence info for Client Admin
+    if (userRole === "CLIENT_ADMIN") {
+      stats.splice(2, 0, {
         label: "Licences Used",
         value: clientStats.licencesUsed,
         change: 0,
         accent: "#8b5cf6",
-        icon: "clipboard",
+        icon: "alertc",
         spark: [0, 0, 0, 0, 0, 0, clientStats.licencesUsed],
-      },
-      {
+      });
+      stats.splice(3, 0, {
         label: "Licences Remaining",
         value: clientStats.licenceRemaining,
         change: 0,
         accent: "#f59e0b",
-        icon: "alertc",
-        spark: [0, 0, 0, 0, 0, 0, clientStats.licenceRemaining],
-      },
-      {
-        label: "Enabled Services",
-        value: clientStats.enabledServices.length,
-        change: 0,
-        accent: "#10b981",
         icon: "check",
-        spark: [0, 0, 0, 0, 0, 0, clientStats.enabledServices.length],
-      },
-    ];
+        spark: [0, 0, 0, 0, 0, 0, clientStats.licenceRemaining],
+      });
+    }
+
+    return stats;
   }, [userRole, adminStats, clientStats]);
 
   const markAllRead = useCallback(
@@ -1260,6 +1470,11 @@ export default function DashboardPage() {
               <span style={{ color: "#c0152a", fontWeight: 600 }}>
                 {userEmail}
               </span>
+              {dashboardLevel && (
+                <span style={{ marginLeft: 8, fontSize: 10, background: "#f1f5f9", padding: "2px 8px", borderRadius: 4 }}>
+                  {dashboardLevel}
+                </span>
+              )}
             </p>
           </div>
 

@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 import { z } from "zod";
-import api from "@/app/lib/api";
+import api, { formatValidationError } from "@/app/lib/api";
 
 interface Category {
   id: string;
@@ -64,8 +63,7 @@ interface Asset {
   qr_code_url: string | null;
 }
 
-// Zod schemas for form validation
-
+// Updated Zod schema - removed image_url
 const assetSchema = z.object({
   category_id: z.string().min(1, "Please select a category"),
   type_id: z.string().min(1, "Please select a type"),
@@ -109,7 +107,6 @@ const assetSchema = z.object({
     "TRANSIT",
     "DECOMMISSIONED",
   ]),
-  image_url: z.string().url("Invalid URL").optional().default(""),
 });
 
 const assignSchema = z.object({
@@ -136,12 +133,12 @@ export default function AssetsPage() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [imagePreview, setImagePreview] = useState("");
-  const [editImagePreview, setEditImagePreview] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [editUploading, setEditUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  // New image file states - simple file selection
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const [editImagePreview, setEditImagePreview] = useState<string>("");
 
   const [formData, setFormData] = useState({
     category_id: "",
@@ -157,7 +154,6 @@ export default function AssetsPage() {
     purchase_date: "",
     purchase_value: "",
     status: "AVAILABLE",
-    image_url: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -175,7 +171,6 @@ export default function AssetsPage() {
     purchase_date: "",
     purchase_value: "",
     status: "AVAILABLE",
-    image_url: "",
   });
   const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
@@ -263,7 +258,7 @@ export default function AssetsPage() {
       setAssets(response.data || []);
     } catch (error: any) {
       console.error("Error fetching assets:", error);
-      toast.error(error.response?.data?.detail || "Failed to fetch assets");
+      toast.error(formatValidationError(error) || "Failed to fetch assets");
     } finally {
       setLoading(false);
     }
@@ -330,128 +325,60 @@ export default function AssetsPage() {
     }
   }, [editFormData.category_id, types]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // NEW: Simple image file selection for create
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
       toast.error("Please select an image file");
+      e.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image size must be less than 5MB");
+      e.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-
-    setUploading(true);
-    try {
-      const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
-
-      const response = await api.post("/upload/asset-image", uploadFormData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const imageUrl = response.data.url;
-      setFormData((prev) => ({ ...prev, image_url: imageUrl }));
-      toast.success("Image uploaded successfully");
-    } catch (error: any) {
-      console.error("Error uploading image:", error);
-      toast.error(error.response?.data?.detail || "Failed to upload image");
-      setImagePreview("");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
+    setImageFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
   };
 
-  const handleEditImageUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  // NEW: Simple image file selection for edit
+  const handleEditImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
       toast.error("Please select an image file");
+      e.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Image size must be less than 5MB");
+      e.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setEditImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-
-    setEditUploading(true);
-    try {
-      const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
-
-      const response = await api.post("/upload/asset-image", uploadFormData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const imageUrl = response.data.url;
-      setEditFormData((prev) => ({ ...prev, image_url: imageUrl }));
-      toast.success("Image uploaded successfully");
-    } catch (error: any) {
-      console.error("Error uploading image:", error);
-      toast.error(error.response?.data?.detail || "Failed to upload image");
-      setEditImagePreview("");
-    } finally {
-      setEditUploading(false);
-      if (editFileInputRef.current) {
-        editFileInputRef.current.value = "";
-      }
-    }
+    setEditImageFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setEditImagePreview(previewUrl);
   };
 
-  const handleImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const url = e.target.value;
-    setFormData({ ...formData, image_url: url });
-    setImagePreview(url);
-    if (formErrors.image_url) setFormErrors({ ...formErrors, image_url: "" });
-  };
-
-  const handleEditImageUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const url = e.target.value;
-    setEditFormData({ ...editFormData, image_url: url });
-    setEditImagePreview(url);
-    if (editErrors.image_url) setEditErrors({ ...editErrors, image_url: "" });
-  };
-
+  // NEW: Remove image for create
   const removeImage = () => {
-    setFormData({ ...formData, image_url: "" });
+    setImageFile(null);
     setImagePreview("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   };
 
+  // NEW: Remove image for edit
   const removeEditImage = () => {
-    setEditFormData({ ...editFormData, image_url: "" });
+    setEditImageFile(null);
     setEditImagePreview("");
-    if (editFileInputRef.current) {
-      editFileInputRef.current.value = "";
-    }
   };
 
   const getLocationName = (locationId: string | null) => {
@@ -460,6 +387,7 @@ export default function AssetsPage() {
     return loc ? loc.full_path : "Unknown";
   };
 
+  // UPDATED: Create asset with image in single request
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -485,34 +413,49 @@ export default function AssetsPage() {
 
     setSubmitting(true);
     try {
-      const payload: any = {
+      const formDataToSend = new FormData();
+
+      // Build asset data object
+      const assetData: any = {
         category_id: result.data.category_id,
         type_id: result.data.type_id,
         name: result.data.name.trim(),
         status: result.data.status,
       };
 
-      if (result.data.department_id)
-        payload.department_id = result.data.department_id;
-      if (result.data.assigned_to_user_id)
-        payload.assigned_to_user_id = result.data.assigned_to_user_id;
-      if (result.data.location_id)
-        payload.location_id = result.data.location_id;
-      if (result.data.description)
-        payload.description = result.data.description;
-      if (result.data.serial_number)
-        payload.serial_number = result.data.serial_number;
-      if (result.data.model) payload.model = result.data.model;
-      if (result.data.manufacturer)
-        payload.manufacturer = result.data.manufacturer;
-      if (result.data.purchase_date)
-        payload.purchase_date = result.data.purchase_date;
-      if (result.data.purchase_value)
-        payload.purchase_value = result.data.purchase_value;
-      if (result.data.image_url)
-        payload.created_image_url = result.data.image_url;
+      if (result.data.department_id && result.data.department_id !== "")
+        assetData.department_id = result.data.department_id;
+      if (
+        result.data.assigned_to_user_id &&
+        result.data.assigned_to_user_id !== ""
+      )
+        assetData.assigned_to_user_id = result.data.assigned_to_user_id;
+      if (result.data.location_id && result.data.location_id !== "")
+        assetData.location_id = result.data.location_id;
+      if (result.data.description && result.data.description !== "")
+        assetData.description = result.data.description;
+      if (result.data.serial_number && result.data.serial_number !== "")
+        assetData.serial_number = result.data.serial_number;
+      if (result.data.model && result.data.model !== "")
+        assetData.model = result.data.model;
+      if (result.data.manufacturer && result.data.manufacturer !== "")
+        assetData.manufacturer = result.data.manufacturer;
+      if (result.data.purchase_date && result.data.purchase_date !== "")
+        assetData.purchase_date = result.data.purchase_date;
+      if (result.data.purchase_value && result.data.purchase_value > 0)
+        assetData.purchase_value = result.data.purchase_value;
 
-      await api.post("/assets", payload);
+      // Append asset_data as JSON string
+      formDataToSend.append("asset_data", JSON.stringify(assetData));
+
+      // Append image file if selected
+      if (imageFile) {
+        formDataToSend.append("image_file", imageFile);
+      }
+
+      await api.post("/assets", formDataToSend, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       toast.success("Asset created successfully");
       setShowModal(false);
       setFormData({
@@ -529,19 +472,20 @@ export default function AssetsPage() {
         purchase_date: "",
         purchase_value: "",
         status: "AVAILABLE",
-        image_url: "",
       });
       setFormErrors({});
+      setImageFile(null);
       setImagePreview("");
       fetchAssets();
     } catch (error: any) {
       console.error("Error creating asset:", error);
-      toast.error(error.response?.data?.detail || "Failed to create asset");
+      toast.error(formatValidationError(error) || "Failed to create asset");
     } finally {
       setSubmitting(false);
     }
   };
 
+  // UPDATED: Update asset with image in single request
   const handleUpdateAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -568,43 +512,57 @@ export default function AssetsPage() {
 
     setSubmitting(true);
     try {
-      const payload: any = {
+      const formDataToSend = new FormData();
+
+      const assetData: any = {
         category_id: result.data.category_id,
         type_id: result.data.type_id,
         name: result.data.name.trim(),
         status: result.data.status,
       };
 
-      if (result.data.department_id)
-        payload.department_id = result.data.department_id;
-      if (result.data.assigned_to_user_id)
-        payload.assigned_to_user_id = result.data.assigned_to_user_id;
-      if (result.data.location_id)
-        payload.location_id = result.data.location_id;
-      if (result.data.description)
-        payload.description = result.data.description;
-      if (result.data.serial_number)
-        payload.serial_number = result.data.serial_number;
-      if (result.data.model) payload.model = result.data.model;
-      if (result.data.manufacturer)
-        payload.manufacturer = result.data.manufacturer;
-      if (result.data.purchase_date)
-        payload.purchase_date = result.data.purchase_date;
-      if (result.data.purchase_value)
-        payload.purchase_value = result.data.purchase_value;
-      if (result.data.image_url)
-        payload.created_image_url = result.data.image_url;
+      if (result.data.department_id && result.data.department_id !== "")
+        assetData.department_id = result.data.department_id;
+      if (
+        result.data.assigned_to_user_id &&
+        result.data.assigned_to_user_id !== ""
+      )
+        assetData.assigned_to_user_id = result.data.assigned_to_user_id;
+      if (result.data.location_id && result.data.location_id !== "")
+        assetData.location_id = result.data.location_id;
+      if (result.data.description && result.data.description !== "")
+        assetData.description = result.data.description;
+      if (result.data.serial_number && result.data.serial_number !== "")
+        assetData.serial_number = result.data.serial_number;
+      if (result.data.model && result.data.model !== "")
+        assetData.model = result.data.model;
+      if (result.data.manufacturer && result.data.manufacturer !== "")
+        assetData.manufacturer = result.data.manufacturer;
+      if (result.data.purchase_date && result.data.purchase_date !== "")
+        assetData.purchase_date = result.data.purchase_date;
+      if (result.data.purchase_value && result.data.purchase_value > 0)
+        assetData.purchase_value = result.data.purchase_value;
 
-      await api.patch(`/assets/${selectedAsset.id}`, payload);
+      formDataToSend.append("asset_data", JSON.stringify(assetData));
+
+      // Append image file if selected (optional for update)
+      if (editImageFile) {
+        formDataToSend.append("image_file", editImageFile);
+      }
+
+      await api.patch(`/assets/${selectedAsset.id}`, formDataToSend, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       toast.success("Asset updated successfully");
       setShowEditModal(false);
       setSelectedAsset(null);
       setEditErrors({});
+      setEditImageFile(null);
       setEditImagePreview("");
       fetchAssets();
     } catch (error: any) {
       console.error("Error updating asset:", error);
-      toast.error(error.response?.data?.detail || "Failed to update asset");
+      toast.error(formatValidationError(error) || "Failed to update asset");
     } finally {
       setSubmitting(false);
     }
@@ -622,7 +580,7 @@ export default function AssetsPage() {
       fetchAssets();
     } catch (error: any) {
       console.error("Error deleting asset:", error);
-      toast.error(error.response?.data?.detail || "Failed to delete asset");
+      toast.error(formatValidationError(error) || "Failed to delete asset");
     } finally {
       setSubmitting(false);
     }
@@ -658,7 +616,7 @@ export default function AssetsPage() {
       fetchAssets();
     } catch (error: any) {
       console.error("Error assigning asset:", error);
-      toast.error(error.response?.data?.detail || "Failed to assign asset");
+      toast.error(formatValidationError(error) || "Failed to assign asset");
     } finally {
       setSubmitting(false);
     }
@@ -672,7 +630,7 @@ export default function AssetsPage() {
       fetchAssets();
     } catch (error: any) {
       console.error("Error unassigning asset:", error);
-      toast.error(error.response?.data?.detail || "Failed to unassign asset");
+      toast.error(formatValidationError(error) || "Failed to unassign asset");
     } finally {
       setSubmitting(false);
     }
@@ -694,10 +652,10 @@ export default function AssetsPage() {
       purchase_date: asset.purchase_date || "",
       purchase_value: asset.purchase_value?.toString() || "",
       status: asset.status || "AVAILABLE",
-      image_url: asset.created_image_url || "",
     });
     setEditErrors({});
-    setEditImagePreview(asset.created_image_url || "");
+    setEditImageFile(null);
+    setEditImagePreview("");
     setShowEditModal(true);
   };
 
@@ -876,7 +834,6 @@ export default function AssetsPage() {
           opacity: 0.9;
         }
 
-        /* Table with horizontal scroll - ONLY the table scrolls */
         .table-wrapper {
           overflow-x: auto;
           -webkit-overflow-scrolling: touch;
@@ -958,7 +915,6 @@ export default function AssetsPage() {
           background: #fef2f2;
         }
 
-        /* Column widths for better alignment */
         .asset-table th:first-child,
         .asset-table td:first-child {
           width: 60px;
@@ -1139,7 +1095,7 @@ export default function AssetsPage() {
           }
         }
 
-        .upload-dropzone {
+        .file-upload-area {
           border: 2px dashed #e2e8f0;
           border-radius: 12px;
           padding: 16px;
@@ -1149,44 +1105,44 @@ export default function AssetsPage() {
           background: #fafbfc;
         }
         @media (min-width: 640px) {
-          .upload-dropzone {
+          .file-upload-area {
             padding: 24px;
           }
         }
-        .upload-dropzone:hover {
+        .file-upload-area:hover {
           border-color: #dc2626;
           background: #fef2f2;
         }
-        .upload-dropzone.dragging {
+        .file-upload-area.dragging {
           border-color: #dc2626;
           background: #fef2f2;
         }
-        .upload-dropzone .upload-icon {
+        .file-upload-area .upload-icon {
           font-size: 24px;
           margin-bottom: 4px;
         }
         @media (min-width: 640px) {
-          .upload-dropzone .upload-icon {
+          .file-upload-area .upload-icon {
             font-size: 32px;
             margin-bottom: 8px;
           }
         }
-        .upload-dropzone .upload-text {
+        .file-upload-area .upload-text {
           color: #64748b;
           font-size: 12px;
         }
         @media (min-width: 640px) {
-          .upload-dropzone .upload-text {
+          .file-upload-area .upload-text {
             font-size: 14px;
           }
         }
-        .upload-dropzone .upload-subtext {
+        .file-upload-area .upload-subtext {
           color: #94a3b8;
           font-size: 10px;
           margin-top: 2px;
         }
         @media (min-width: 640px) {
-          .upload-dropzone .upload-subtext {
+          .file-upload-area .upload-subtext {
             font-size: 12px;
             margin-top: 4px;
           }
@@ -1249,7 +1205,6 @@ export default function AssetsPage() {
           }
         }
 
-        /* Responsive: Action buttons in table */
         .action-cell {
           display: flex;
           flex-wrap: wrap;
@@ -1262,7 +1217,6 @@ export default function AssetsPage() {
           }
         }
 
-        /* Responsive: Stats grid */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
@@ -1276,7 +1230,6 @@ export default function AssetsPage() {
           }
         }
 
-        /* Responsive: Search and filters */
         .search-filters {
           display: flex;
           flex-direction: column;
@@ -1300,7 +1253,7 @@ export default function AssetsPage() {
         </div>
 
         <div className="relative p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-          {/* ─── Header ─── */}
+          {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 gap-3 sm:gap-4 fade-in-up">
             <div className="w-full md:w-auto">
               <div className="flex items-center gap-2 sm:gap-3 mb-0.5">
@@ -1349,7 +1302,7 @@ export default function AssetsPage() {
             </button>
           </div>
 
-          {/* ─── Stats ─── */}
+          {/* Stats */}
           {!loading && assets.length > 0 && (
             <div className="stats-grid fade-in-up">
               <div className="stat-card p-3 sm:p-4 flex items-center gap-3 sm:gap-4">
@@ -1452,7 +1405,7 @@ export default function AssetsPage() {
             </div>
           )}
 
-          {/* ─── Search & Filter ─── */}
+          {/* Search & Filter */}
           <div className="search-filters fade-in-up">
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
               <div className="relative w-full sm:w-72">
@@ -1509,14 +1462,14 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          {/* ─── Loading State ─── */}
+          {/* Loading State */}
           {loading && (
             <div className="flex justify-center items-center py-16 sm:py-20">
               <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
             </div>
           )}
 
-          {/* ─── Table ─── */}
+          {/* Table */}
           {!loading && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden fade-in-up">
               <div className="table-wrapper">
@@ -1717,7 +1670,7 @@ export default function AssetsPage() {
         </div>
       </div>
 
-      {/* ─── CREATE ASSET MODAL ─── */}
+      {/* CREATE ASSET MODAL */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -2175,22 +2128,21 @@ export default function AssetsPage() {
                   )}
                 </div>
 
-                {/* Image Upload - full width */}
+                {/* NEW: Simple Image Upload */}
                 <div className="full-width">
                   <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
                     Asset Image
                   </label>
                   <input
-                    ref={fileInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handleImageUpload}
+                    onChange={handleImageSelect}
                     className="hidden"
-                    disabled={uploading}
+                    id="image-upload"
                   />
-                  <div
-                    className="upload-dropzone"
-                    onClick={() => fileInputRef.current?.click()}
+                  <label
+                    htmlFor="image-upload"
+                    className="file-upload-area cursor-pointer block"
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.currentTarget.classList.add("dragging");
@@ -2203,38 +2155,35 @@ export default function AssetsPage() {
                       e.currentTarget.classList.remove("dragging");
                       const file = e.dataTransfer.files?.[0];
                       if (file) {
-                        const inputEvent = new Event("change", {
-                          bubbles: true,
-                        });
-                        Object.defineProperty(inputEvent, "target", {
-                          value: { files: [file] },
-                        });
-                        handleImageUpload(inputEvent as any);
+                        const input = document.getElementById(
+                          "image-upload",
+                        ) as HTMLInputElement;
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        input.files = dt.files;
+                        handleImageSelect({ target: input } as any);
                       }
                     }}
                   >
-                    {uploading ? (
-                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4">
-                        <span className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
-                        <span className="text-xs sm:text-sm text-gray-500">
-                          Uploading...
-                        </span>
-                      </div>
-                    ) : formData.image_url ? (
-                      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
-                        <span className="text-green-500 text-base sm:text-lg">
+                    {imageFile ? (
+                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
+                        <span className="text-green-500 text-lg sm:text-xl">
                           ✅
                         </span>
-                        <span className="text-xs sm:text-sm text-gray-600">
-                          Image uploaded successfully
+                        <span className="text-xs sm:text-sm text-gray-600 font-medium">
+                          {imageFile.name}
                         </span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeImage();
+                            const input = document.getElementById(
+                              "image-upload",
+                            ) as HTMLInputElement;
+                            if (input) input.value = "";
                           }}
-                          className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-medium"
+                          className="text-red-500 hover:text-red-700 text-xs font-medium"
                         >
                           Remove
                         </button>
@@ -2250,7 +2199,7 @@ export default function AssetsPage() {
                         </p>
                       </div>
                     )}
-                  </div>
+                  </label>
 
                   {imagePreview && (
                     <div className="image-preview p-1.5 sm:p-2 mt-2 sm:mt-3">
@@ -2261,29 +2210,6 @@ export default function AssetsPage() {
                         onError={() => setImagePreview("")}
                       />
                     </div>
-                  )}
-
-                  <div className="mt-2 sm:mt-3">
-                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
-                      Or enter image URL directly
-                    </p>
-                    <input
-                      type="text"
-                      value={formData.image_url}
-                      onChange={handleImageUrlChange}
-                      className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 border rounded-xl focus:outline-none focus:ring-2 text-xs sm:text-sm ${
-                        formErrors.image_url
-                          ? "border-red-500 focus:ring-red-400/50"
-                          : "border-gray-200 focus:ring-red-400/50"
-                      }`}
-                      placeholder="https://example.com/asset-image.jpg"
-                      disabled={uploading}
-                    />
-                  </div>
-                  {formErrors.image_url && (
-                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
-                      {formErrors.image_url}
-                    </p>
                   )}
                 </div>
 
@@ -2333,7 +2259,7 @@ export default function AssetsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting || uploading}
+                  disabled={submitting}
                   className="cursor-pointer flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
                 >
                   {submitting ? (
@@ -2351,7 +2277,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {/* ─── EDIT ASSET MODAL ─── */}
+      {/* EDIT ASSET MODAL */}
       {showEditModal && selectedAsset && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -2814,22 +2740,39 @@ export default function AssetsPage() {
                   )}
                 </div>
 
-                {/* Image Upload - full width */}
+                {/* NEW: Simple Image Upload for Edit */}
                 <div className="full-width">
                   <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
                     Asset Image
                   </label>
+
+                  {selectedAsset.created_image_url && !editImageFile && (
+                    <div className="mb-2">
+                      <p className="text-xs text-gray-500 mb-1">
+                        Current Image:
+                      </p>
+                      <img
+                        src={selectedAsset.created_image_url}
+                        alt="Current asset"
+                        className="w-32 h-32 object-cover rounded-lg border border-gray-200"
+                        onError={(e) =>
+                          (e.currentTarget.style.display = "none")
+                        }
+                      />
+                    </div>
+                  )}
+
                   <input
-                    ref={editFileInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handleEditImageUpload}
+                    onChange={handleEditImageSelect}
                     className="hidden"
-                    disabled={editUploading}
+                    id="edit-image-upload"
                   />
-                  <div
-                    className="upload-dropzone"
-                    onClick={() => editFileInputRef.current?.click()}
+
+                  <label
+                    htmlFor="edit-image-upload"
+                    className="file-upload-area cursor-pointer block"
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.currentTarget.classList.add("dragging");
@@ -2842,38 +2785,35 @@ export default function AssetsPage() {
                       e.currentTarget.classList.remove("dragging");
                       const file = e.dataTransfer.files?.[0];
                       if (file) {
-                        const inputEvent = new Event("change", {
-                          bubbles: true,
-                        });
-                        Object.defineProperty(inputEvent, "target", {
-                          value: { files: [file] },
-                        });
-                        handleEditImageUpload(inputEvent as any);
+                        const input = document.getElementById(
+                          "edit-image-upload",
+                        ) as HTMLInputElement;
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        input.files = dt.files;
+                        handleEditImageSelect({ target: input } as any);
                       }
                     }}
                   >
-                    {editUploading ? (
-                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4">
-                        <span className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></span>
-                        <span className="text-xs sm:text-sm text-gray-500">
-                          Uploading...
-                        </span>
-                      </div>
-                    ) : editFormData.image_url ? (
-                      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
-                        <span className="text-green-500 text-base sm:text-lg">
+                    {editImageFile ? (
+                      <div className="flex items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2">
+                        <span className="text-green-500 text-lg sm:text-xl">
                           ✅
                         </span>
-                        <span className="text-xs sm:text-sm text-gray-600">
-                          Image uploaded successfully
+                        <span className="text-xs sm:text-sm text-gray-600 font-medium">
+                          {editImageFile.name}
                         </span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeEditImage();
+                            const input = document.getElementById(
+                              "edit-image-upload",
+                            ) as HTMLInputElement;
+                            if (input) input.value = "";
                           }}
-                          className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-medium"
+                          className="text-red-500 hover:text-red-700 text-xs font-medium"
                         >
                           Remove
                         </button>
@@ -2882,14 +2822,14 @@ export default function AssetsPage() {
                       <div>
                         <div className="upload-icon">🖼️</div>
                         <p className="upload-text">
-                          Click or drag to upload image
+                          Click or drag to upload new image
                         </p>
                         <p className="upload-subtext">
                           PNG, JPG, JPEG up to 5MB
                         </p>
                       </div>
                     )}
-                  </div>
+                  </label>
 
                   {editImagePreview && (
                     <div className="image-preview p-1.5 sm:p-2 mt-2 sm:mt-3">
@@ -2900,29 +2840,6 @@ export default function AssetsPage() {
                         onError={() => setEditImagePreview("")}
                       />
                     </div>
-                  )}
-
-                  <div className="mt-2 sm:mt-3">
-                    <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
-                      Or enter image URL directly
-                    </p>
-                    <input
-                      type="text"
-                      value={editFormData.image_url}
-                      onChange={handleEditImageUrlChange}
-                      className={`w-full px-3 sm:px-4 py-1.5 sm:py-2 border rounded-xl focus:outline-none focus:ring-2 text-xs sm:text-sm ${
-                        editErrors.image_url
-                          ? "border-red-500 focus:ring-red-400/50"
-                          : "border-gray-200 focus:ring-amber-400/50"
-                      }`}
-                      placeholder="https://example.com/asset-image.jpg"
-                      disabled={editUploading}
-                    />
-                  </div>
-                  {editErrors.image_url && (
-                    <p className="text-red-500 text-[10px] sm:text-xs mt-1.5 font-medium">
-                      {editErrors.image_url}
-                    </p>
                   )}
                 </div>
 
@@ -2975,7 +2892,7 @@ export default function AssetsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting || editUploading}
+                  disabled={submitting}
                   className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
                 >
                   {submitting ? (
@@ -2993,7 +2910,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {/* ─── ASSIGN MODAL ─── */}
+      {/* ASSIGN MODAL */}
       {showAssignModal && selectedAsset && (
         <div
           className="modal-overlay"
@@ -3108,7 +3025,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {/* ─── DELETE CONFIRMATION ─── */}
+      {/* DELETE CONFIRMATION */}
       {showDeleteConfirm && selectedAsset && (
         <div
           className="modal-overlay"

@@ -383,68 +383,73 @@ export default function LoginPage() {
     setLoading(true);
     setError(false);
 
-    const endpoints = [
-      { url: "/platform-admins/login", role: "PLATFORM_ADMIN" },
-      { url: "/client/login", role: "CLIENT_ADMIN" },
-      { url: "/users/login", role: "USER" },
-    ];
+    try {
+      // Use the unified login endpoint
+      const response = await api.post("/auth/login", {
+        email,
+        password,
+      });
 
-    let allFailed = true;
+      const { access_token, user } = response.data;
 
-    for (const endpoint of endpoints) {
-      try {
-        const response = await api.post(endpoint.url, {
-          email,
-          password,
-        });
+      // Store token
+      localStorage.setItem("access_token", access_token);
 
-        const { access_token } = response.data;
-        localStorage.setItem("access_token", access_token);
-
-        if (rememberMe) {
-          localStorage.setItem("remembered_email", email);
-        } else {
-          localStorage.removeItem("remembered_email");
-        }
-
-        const payload = decodeToken(access_token);
-        const role = payload?.role || endpoint.role;
-
-        toast.success(`Welcome ${role}!`);
-        router.push("/dashboard");
-        setLoading(false);
-        return;
-      } catch (error: any) {
-        if (error.response?.status === 401) {
-          continue;
-        }
-
-        if (error.response?.status === 403) {
-          const message = error.response?.data?.detail || "";
-          if (
-            message.toLowerCase().includes("subscription") ||
-            message.toLowerCase().includes("expired") ||
-            message.toLowerCase().includes("inactive")
-          ) {
-            toast.error("Subscription expired. Please contact support.");
-            router.push("/subscription-expired");
-            setLoading(false);
-            return;
-          }
-        }
-
-        toast.error(error.response?.data?.detail || "Login failed");
-        setError(true);
-        setTimeout(() => setError(false), 600);
-        setLoading(false);
-        return;
+      // Store user info if needed
+      if (user) {
+        localStorage.setItem("user", JSON.stringify(user));
       }
-    }
 
-    setError(true);
-    toast.error("Invalid email or password");
-    setTimeout(() => setError(false), 600);
-    setLoading(false);
+      // Remember email if checked
+      if (rememberMe) {
+        localStorage.setItem("remembered_email", email);
+      } else {
+        localStorage.removeItem("remembered_email");
+      }
+
+      // Decode token to get role
+      const payload = decodeToken(access_token);
+      const role = payload?.role || user?.role || "USER";
+
+      toast.success(`Welcome ${user?.name || role}!`);
+      router.push("/dashboard");
+    } catch (error: any) {
+      console.error("Login error:", error);
+
+      // Handle specific error cases
+      if (error.response?.status === 401) {
+        setError(true);
+        toast.error("Invalid email or password");
+        setTimeout(() => setError(false), 600);
+      } else if (error.response?.status === 403) {
+        const message = error.response?.data?.detail || "";
+        if (
+          message.toLowerCase().includes("subscription") ||
+          message.toLowerCase().includes("expired") ||
+          message.toLowerCase().includes("inactive")
+        ) {
+          toast.error("Subscription expired. Please contact support.");
+          router.push("/subscription-expired");
+        } else {
+          toast.error(message || "Access forbidden");
+        }
+      } else if (error.response?.status === 422) {
+        // Validation error
+        const detail = error.response?.data?.detail;
+        if (Array.isArray(detail)) {
+          const messages = detail.map((err: any) => err.msg).join(", ");
+          toast.error(messages || "Validation error");
+        } else {
+          toast.error(detail || "Invalid input");
+        }
+      } else {
+        toast.error(
+          error.response?.data?.detail || "Login failed. Please try again.",
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -517,13 +522,6 @@ export default function LoginPage() {
           0%,100% { filter: drop-shadow(0 0 6px rgba(220,38,38,0.5)); }
           50%      { filter: drop-shadow(0 0 14px rgba(220,38,38,0.9)); }
         }
-        @keyframes borderRotate {
-          to { --angle: 360deg; }
-        }
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
 
         .card-enter {
           animation: cardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -584,6 +582,11 @@ export default function LoginPage() {
         .stagger-5 { animation: fadeInUp 0.4s ease 0.43s both; }
         .stagger-6 { animation: fadeInUp 0.4s ease 0.50s both; }
         .stagger-7 { animation: fadeInUp 0.4s ease 0.57s both; }
+
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
 
         @media (max-width: 767px) {
           .left-panel { display: none !important; }
@@ -962,6 +965,13 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </form>
+
+                {/* ─ Footer ─ */}
+                <div className="stagger-7 mt-6 text-center">
+                  <p className="text-[11px] text-gray-400">
+                    Secured with enterprise-grade encryption
+                  </p>
+                </div>
               </div>
             </div>
           </div>

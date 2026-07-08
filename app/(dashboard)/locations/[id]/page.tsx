@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import toast from "react-hot-toast";
 import api from "@/app/lib/api";
+
+// ─── TYPES ────────────────────────────────────────────────
 
 interface LocationPathItem {
   id: string;
@@ -11,15 +13,20 @@ interface LocationPathItem {
   location_type: string;
 }
 
-interface LocationDetail {
+interface LocationHierarchy {
+  leaf_id: string;
+  leaf_name: string;
+  full_path: string;
+  path: LocationPathItem[];
+}
+
+interface LocationDetail extends LocationHierarchy {
   id: string;
   name: string;
   location_type: string;
-  full_path: string;
-  path: LocationPathItem[];
   is_active: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface Asset {
@@ -28,40 +35,73 @@ interface Asset {
   serial_number: string;
   asset_condition: string;
   assigned_to_user_id: string | null;
+  location_id?: string;
 }
 
 interface User {
   id: string;
   full_name: string;
   email: string;
+  is_active: boolean;
 }
+
+interface Department {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+// ─── MAIN COMPONENT ─────────────────────────────────────
 
 export default function LocationDetailPage() {
   const router = useRouter();
   const params = useParams();
   const locationId = params.id as string;
 
+  // ─── STATE ────────────────────────────────────────────────
+
   const [location, setLocation] = useState<LocationDetail | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Modal states
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showMigrateModal, setShowMigrateModal] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showAddAssetModal, setShowAddAssetModal] = useState(false);
+  
+  // Edit form
   const [editFormData, setEditFormData] = useState({
     name: "",
     location_type: "",
   });
-  const [migrateFormData, setMigrateFormData] = useState({
-    path: [
-      { name: "", location_type: "COUNTRY" },
-      { name: "", location_type: "STATE" },
-      { name: "", location_type: "CITY" },
-      { name: "", location_type: "OFFICE" },
-    ],
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+  
+  // Migrate form
+  const [migratePath, setMigratePath] = useState<LocationPathItem[]>([
+    { id: "", name: "", location_type: "COUNTRY" },
+    { id: "", name: "", location_type: "STATE" },
+    { id: "", name: "", location_type: "CITY" },
+    { id: "", name: "", location_type: "OFFICE" },
+  ]);
+  const [migrateConfirmed, setMigrateConfirmed] = useState(false);
+  const [migrateErrors, setMigrateErrors] = useState<Record<string, string>>({});
+  
+  // Add asset form
+  const [assetFormData, setAssetFormData] = useState({
+    name: "",
+    serial_number: "",
+    asset_condition: "AVAILABLE",
+    assigned_to_user_id: "",
+    department_id: "",
   });
+  const [assetErrors, setAssetErrors] = useState<Record<string, string>>({});
+
+  // ─── CONSTANTS ────────────────────────────────────────────
 
   const locationTypes = [
     "COUNTRY",
@@ -73,131 +113,16 @@ export default function LocationDetailPage() {
     "OFFICE",
   ];
 
-  useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
-  }, []);
+  const assetConditions = [
+    "AVAILABLE",
+    "ASSIGNED",
+    "MAINTENANCE",
+    "UNDER_MAINTENANCE",
+    "DECOMMISSIONED",
+    "LOST",
+  ];
 
-  const fetchLocationDetails = async () => {
-    try {
-      setLoading(true);
-
-      const locRes = await api.get(`/location/${locationId}/leaf-path`);
-      const assetsRes = await api.get(`/assets?location_id=${locationId}`);
-      const usersRes = await api.get("/users");
-
-      setLocation(locRes.data);
-      setAssets(assetsRes.data || []);
-      setUsers(usersRes.data || []);
-
-      setEditFormData({
-        name: locRes.data.leaf_name || "",
-        location_type:
-          locRes.data.path?.[locRes.data.path.length - 1]?.location_type || "",
-      });
-    } catch (error: any) {
-      console.error("Error fetching location details:", error);
-      toast.error("Failed to load location details");
-      router.push("/locations");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-    if (locationId) {
-      fetchLocationDetails();
-    }
-  }, [locationId]);
-
-  const handleUpdateLocation = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!editFormData.name.trim()) {
-      toast.error("Location name is required");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await api.patch(`/location/${locationId}`, {
-        name: editFormData.name.trim(),
-        location_type: editFormData.location_type,
-      });
-      toast.success("Location updated successfully");
-      setShowEditModal(false);
-      fetchLocationDetails();
-    } catch (error: any) {
-      console.error("Error updating location:", error);
-      toast.error(error.response?.data?.detail || "Failed to update location");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleMigrateLocation = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const filteredPath = migrateFormData.path.filter(
-      (item) => item.name.trim() !== "",
-    );
-
-    if (filteredPath.length < 2) {
-      toast.error("Please enter at least 2 levels for the new path");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await api.post("/location/migrate", {
-        source_location_id: locationId,
-        path: filteredPath,
-      });
-      toast.success("Location migrated successfully");
-      setShowMigrateModal(false);
-      setMigrateFormData({
-        path: [
-          { name: "", location_type: "COUNTRY" },
-          { name: "", location_type: "STATE" },
-          { name: "", location_type: "CITY" },
-          { name: "", location_type: "OFFICE" },
-        ],
-      });
-      fetchLocationDetails();
-    } catch (error: any) {
-      console.error("Error migrating location:", error);
-      toast.error(error.response?.data?.detail || "Failed to migrate location");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleCloseLocation = async () => {
-    setSubmitting(true);
-    try {
-      await api.post(`/location/${locationId}/close`, {});
-      toast.success("Location closed successfully");
-      setShowCloseConfirm(false);
-      fetchLocationDetails();
-    } catch (error: any) {
-      console.error("Error closing location:", error);
-      toast.error(error.response?.data?.detail || "Failed to close location");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const updateMigratePath = (index: number, field: string, value: string) => {
-    const newPath = [...migrateFormData.path];
-    newPath[index] = { ...newPath[index], [field]: value };
-    setMigrateFormData({ ...migrateFormData, path: newPath });
-  };
+  // ─── HELPERS ──────────────────────────────────────────────
 
   const getLocationTypeColor = (type: string) => {
     const colors: Record<string, string> = {
@@ -243,6 +168,207 @@ export default function LocationDetailPage() {
     const user = users.find((u) => u.id === userId);
     return user ? user.full_name : "Unknown";
   };
+
+  const getDepartmentName = (deptId: string | null) => {
+    if (!deptId) return "—";
+    const dept = departments.find((d) => d.id === deptId);
+    return dept ? dept.name : "Unknown";
+  };
+
+  // ─── API CALLS ────────────────────────────────────────────
+
+  const fetchLocationDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      // Fetch location path
+      const locRes = await api.get(`/location/${locationId}/leaf-path`);
+      const locationData = locRes.data;
+
+      // Fetch assets at this location
+      const assetsRes = await api.get(`/assets?location_id=${locationId}`);
+      
+      // Fetch users
+      const usersRes = await api.get("/users");
+      
+      // Fetch departments
+      const deptsRes = await api.get("/departments");
+
+      setLocation({
+        ...locationData,
+        id: locationData.leaf_id,
+        name: locationData.leaf_name,
+        location_type: locationData.path?.[locationData.path.length - 1]?.location_type || "OFFICE",
+        is_active: true, // API doesn't return this, but we can assume it's active if it exists
+      });
+      setAssets(assetsRes.data || []);
+      setUsers(usersRes.data || []);
+      setDepartments(deptsRes.data || []);
+
+      // Set edit form data
+      const lastPathItem = locationData.path?.[locationData.path.length - 1];
+      setEditFormData({
+        name: locationData.leaf_name || "",
+        location_type: lastPathItem?.location_type || "OFFICE",
+      });
+
+    } catch (error: any) {
+      console.error("Error fetching location details:", error);
+      toast.error(error.response?.data?.detail || "Failed to load location details");
+      router.push("/locations");
+    } finally {
+      setLoading(false);
+    }
+  }, [locationId, router]);
+
+  // ─── EFFECTS ──────────────────────────────────────────────
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    if (locationId) {
+      fetchLocationDetails();
+    }
+  }, [locationId, fetchLocationDetails, router]);
+
+  // ─── HANDLERS ────────────────────────────────────────────
+
+  const handleUpdateLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!editFormData.name.trim()) {
+      toast.error("Location name is required");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.patch(`/location/${locationId}`, {
+        name: editFormData.name.trim(),
+        location_type: editFormData.location_type,
+      });
+      toast.success("Location updated successfully");
+      setShowEditModal(false);
+      fetchLocationDetails();
+    } catch (error: any) {
+      console.error("Error updating location:", error);
+      toast.error(error.response?.data?.detail || "Failed to update location");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMigrateLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const filteredPath = migratePath.filter((item) => item.name.trim() !== "");
+
+    if (filteredPath.length < 2) {
+      toast.error("Please enter at least 2 levels for the new path");
+      return;
+    }
+
+    if (!migrateConfirmed) {
+      toast.error("Please confirm the migration warning");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.post("/location/migrate", {
+        source_location_id: locationId,
+        path: filteredPath.map((item) => ({
+          name: item.name.trim(),
+          location_type: item.location_type,
+        })),
+      });
+      toast.success("Location migrated successfully");
+      setShowMigrateModal(false);
+      setMigrateConfirmed(false);
+      setMigratePath([
+        { id: "", name: "", location_type: "COUNTRY" },
+        { id: "", name: "", location_type: "STATE" },
+        { id: "", name: "", location_type: "CITY" },
+        { id: "", name: "", location_type: "OFFICE" },
+      ]);
+      router.push("/locations");
+    } catch (error: any) {
+      console.error("Error migrating location:", error);
+      toast.error(error.response?.data?.detail || "Failed to migrate location");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCloseLocation = async () => {
+    setSubmitting(true);
+    try {
+      await api.post(`/location/${locationId}/close`);
+      toast.success("Location closed successfully");
+      setShowCloseConfirm(false);
+      fetchLocationDetails();
+    } catch (error: any) {
+      console.error("Error closing location:", error);
+      toast.error(error.response?.data?.detail || "Failed to close location");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!assetFormData.name.trim()) {
+      toast.error("Asset name is required");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.post("/assets", {
+        ...assetFormData,
+        location_id: locationId,
+        name: assetFormData.name.trim(),
+      });
+      toast.success("Asset added successfully");
+      setShowAddAssetModal(false);
+      setAssetFormData({
+        name: "",
+        serial_number: "",
+        asset_condition: "AVAILABLE",
+        assigned_to_user_id: "",
+        department_id: "",
+      });
+      fetchLocationDetails();
+    } catch (error: any) {
+      console.error("Error adding asset:", error);
+      toast.error(error.response?.data?.detail || "Failed to add asset");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const updateMigratePath = (index: number, field: keyof LocationPathItem, value: string) => {
+    const newPath = [...migratePath];
+    newPath[index] = { ...newPath[index], [field]: value };
+    setMigratePath(newPath);
+    if (migrateErrors[`path[${index}].${field}`]) {
+      const newErrors = { ...migrateErrors };
+      delete newErrors[`path[${index}].${field}`];
+      setMigrateErrors(newErrors);
+    }
+  };
+
+  // ─── RENDER ──────────────────────────────────────────────
 
   if (!mounted || loading) {
     return (
@@ -403,7 +529,6 @@ export default function LocationDetailPage() {
           box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
         }
 
-        /* Responsive: Asset row - stack on mobile */
         .asset-row-content {
           display: flex;
           flex-direction: column;
@@ -420,7 +545,6 @@ export default function LocationDetailPage() {
           }
         }
 
-        /* Responsive: Action buttons */
         .action-buttons {
           display: flex;
           flex-direction: column;
@@ -444,7 +568,6 @@ export default function LocationDetailPage() {
           }
         }
 
-        /* Responsive: Header */
         .location-header {
           display: flex;
           flex-direction: column;
@@ -472,7 +595,6 @@ export default function LocationDetailPage() {
           }
         }
 
-        /* Responsive: Migrate form fields */
         .migrate-row {
           display: flex;
           flex-direction: column;
@@ -512,7 +634,6 @@ export default function LocationDetailPage() {
           }
         }
 
-        /* Responsive: Stats grid */
         .detail-grid {
           display: grid;
           grid-template-columns: 1fr;
@@ -528,6 +649,7 @@ export default function LocationDetailPage() {
 
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50/30">
         <div className="relative p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+          
           {/* ─── Back Button ─── */}
           <button
             onClick={() => router.push("/locations")}
@@ -603,7 +725,7 @@ export default function LocationDetailPage() {
 
           {/* ─── Two Column Layout ─── */}
           <div className="detail-grid fade-in-up">
-            {/* ─── Left Column: Location Info ─── */}
+            {/* ─── Left Column ─── */}
             <div className="space-y-4 sm:space-y-6">
               {/* Location Path */}
               <div className="info-card p-4 sm:p-6">
@@ -631,7 +753,7 @@ export default function LocationDetailPage() {
                 </div>
               </div>
 
-              {/* Assets at this location */}
+              {/* Assets */}
               <div className="info-card p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3 sm:mb-4">
                   <h3 className="text-base sm:text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -649,25 +771,25 @@ export default function LocationDetailPage() {
                     </svg>
                     Assets at this location ({assets.length})
                   </h3>
-                  <button
-                    onClick={() =>
-                      router.push(`/assets?location_id=${locationId}`)
-                    }
-                    className="text-[10px] sm:text-xs text-emerald-600 hover:text-emerald-700 font-semibold"
-                  >
-                    View all →
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowAddAssetModal(true)}
+                      className="text-[10px] sm:text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 font-semibold transition"
+                    >
+                      + Add Asset
+                    </button>
+                    <button
+                      onClick={() => router.push(`/assets?location_id=${locationId}`)}
+                      className="text-[10px] sm:text-xs text-emerald-600 hover:text-emerald-700 font-semibold"
+                    >
+                      View all →
+                    </button>
+                  </div>
                 </div>
 
                 {assets.length === 0 ? (
                   <div className="text-center py-6 sm:py-8 text-slate-500 text-xs sm:text-sm">
                     No assets at this location yet.
-                    <button
-                      onClick={() => router.push("/assets/new")}
-                      className="block mt-2 text-emerald-600 hover:underline font-medium"
-                    >
-                      + Add asset
-                    </button>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -703,9 +825,7 @@ export default function LocationDetailPage() {
                     ))}
                     {assets.length > 5 && (
                       <button
-                        onClick={() =>
-                          router.push(`/assets?location_id=${locationId}`)
-                        }
+                        onClick={() => router.push(`/assets?location_id=${locationId}`)}
                         className="text-[10px] sm:text-xs text-emerald-600 hover:text-emerald-700 font-semibold mt-2 block"
                       >
                         + {assets.length - 5} more assets →
@@ -716,7 +836,7 @@ export default function LocationDetailPage() {
               </div>
             </div>
 
-            {/* ─── Right Column: Metadata ─── */}
+            {/* ─── Right Column ─── */}
             <div className="space-y-4 sm:space-y-6">
               <div className="info-card p-4 sm:p-6">
                 <h3 className="text-base sm:text-lg font-semibold text-slate-800 mb-3 sm:mb-4 flex items-center gap-2">
@@ -777,9 +897,7 @@ export default function LocationDetailPage() {
                   </div>
                   <div className="pt-3 sm:pt-4 border-t border-slate-100">
                     <button
-                      onClick={() =>
-                        router.push(`/locations/${locationId}/audits`)
-                      }
+                      onClick={() => router.push(`/locations/${locationId}/audits`)}
                       className="text-xs sm:text-sm text-slate-500 hover:text-emerald-600 font-medium transition-colors"
                     >
                       📜 View audit history →
@@ -824,10 +942,7 @@ export default function LocationDetailPage() {
               </button>
             </div>
 
-            <form
-              onSubmit={handleUpdateLocation}
-              className="space-y-3 sm:space-y-4"
-            >
+            <form onSubmit={handleUpdateLocation} className="space-y-3 sm:space-y-4">
               <div>
                 <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
                   Location Name <span className="text-red-500">*</span>
@@ -892,10 +1007,7 @@ export default function LocationDetailPage() {
 
       {/* ─── Migrate Modal ─── */}
       {showMigrateModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => setShowMigrateModal(false)}
-        >
+        <div className="modal-overlay" onClick={() => setShowMigrateModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4 sm:mb-6">
               <div>
@@ -929,10 +1041,7 @@ export default function LocationDetailPage() {
               </button>
             </div>
 
-            <form
-              onSubmit={handleMigrateLocation}
-              className="space-y-3 sm:space-y-4"
-            >
+            <form onSubmit={handleMigrateLocation} className="space-y-3 sm:space-y-4">
               <div className="p-3 sm:p-4 bg-amber-50/50 rounded-xl border border-amber-100">
                 <p className="text-[10px] sm:text-xs text-amber-700 break-all">
                   Current path:{" "}
@@ -944,7 +1053,7 @@ export default function LocationDetailPage() {
                 Enter the new hierarchy path for this location
               </p>
 
-              {migrateFormData.path.map((item, index) => (
+              {migratePath.map((item, index) => (
                 <div
                   key={index}
                   className="migrate-row slide-in"
@@ -976,6 +1085,34 @@ export default function LocationDetailPage() {
                 </div>
               ))}
 
+              {/* Warning */}
+              <div className="p-3 sm:p-4 bg-red-50 rounded-xl border border-red-200">
+                <div className="flex items-start gap-2">
+                  <span className="text-lg sm:text-xl text-red-600">⚠️</span>
+                  <div>
+                    <p className="font-bold text-red-800 text-xs sm:text-sm">
+                      Warning: This action is irreversible!
+                    </p>
+                    <ul className="text-[10px] sm:text-xs text-red-700 mt-1 list-disc pl-4 space-y-0.5">
+                      <li>All assets will be moved to the new location</li>
+                      <li>All departments will be transferred</li>
+                      <li>The source location will be deactivated</li>
+                    </ul>
+                    <label className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        checked={migrateConfirmed}
+                        onChange={(e) => setMigrateConfirmed(e.target.checked)}
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-600 rounded focus:ring-red-500"
+                      />
+                      <span className="text-[10px] sm:text-xs text-slate-700">
+                        I understand the consequences
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-slate-100">
                 <button
                   type="button"
@@ -986,13 +1123,13 @@ export default function LocationDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-lg shadow-amber-500/20 order-1 sm:order-2"
+                  disabled={submitting || !migrateConfirmed}
+                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-700 hover:to-orange-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-lg shadow-amber-500/20 order-1 sm:order-2"
                 >
                   {submitting ? (
                     <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    "Migrate Location"
+                    "🚀 Execute Migration"
                   )}
                 </button>
               </div>
@@ -1003,14 +1140,8 @@ export default function LocationDetailPage() {
 
       {/* ─── Close Confirmation ─── */}
       {showCloseConfirm && (
-        <div
-          className="modal-overlay"
-          onClick={() => setShowCloseConfirm(false)}
-        >
-          <div
-            className="modal-content max-w-md text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="modal-overlay" onClick={() => setShowCloseConfirm(false)}>
+          <div className="modal-content max-w-md text-center" onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col items-center">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-100 flex items-center justify-center mb-3 sm:mb-4">
                 <svg
@@ -1036,11 +1167,21 @@ export default function LocationDetailPage() {
                   {location.name}
                 </span>
                 ?
-                <br />
-                <span className="text-[10px] sm:text-xs text-slate-400">
-                  This will deactivate the location
-                </span>
               </p>
+              
+              <div className="w-full p-3 sm:p-4 bg-red-50 rounded-xl border border-red-200 text-left mb-4 sm:mb-6">
+                <p className="font-bold text-red-800 text-xs sm:text-sm">This will:</p>
+                <ul className="text-[10px] sm:text-xs text-red-700 mt-1 list-disc pl-4 space-y-0.5">
+                  <li>Deactivate this location</li>
+                  <li>Deactivate all child locations</li>
+                  <li>Deactivate all assets</li>
+                  <li>Deactivate all departments</li>
+                </ul>
+                <p className="text-[10px] sm:text-xs text-slate-500 mt-2">
+                  ⚠️ Records are not deleted. History remains intact.
+                </p>
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full">
                 <button
                   onClick={() => setShowCloseConfirm(false)}
@@ -1061,6 +1202,151 @@ export default function LocationDetailPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Add Asset Modal ─── */}
+      {showAddAssetModal && (
+        <div className="modal-overlay" onClick={() => setShowAddAssetModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+                  Add Asset
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                  Add a new asset to {location.name}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddAssetModal(false)}
+                className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all duration-200 flex-shrink-0"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="sm:w-4 sm:h-4"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleAddAsset} className="space-y-3 sm:space-y-4">
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                  Asset Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={assetFormData.name}
+                  onChange={(e) =>
+                    setAssetFormData({ ...assetFormData, name: e.target.value })
+                  }
+                  required
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all input-fancy text-slate-800 placeholder-slate-400 text-xs sm:text-sm font-normal"
+                  placeholder="Enter asset name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                  Serial Number
+                </label>
+                <input
+                  type="text"
+                  value={assetFormData.serial_number}
+                  onChange={(e) =>
+                    setAssetFormData({ ...assetFormData, serial_number: e.target.value })
+                  }
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all input-fancy text-slate-800 placeholder-slate-400 text-xs sm:text-sm font-normal"
+                  placeholder="Enter serial number"
+                />
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                  Condition <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={assetFormData.asset_condition}
+                  onChange={(e) =>
+                    setAssetFormData({ ...assetFormData, asset_condition: e.target.value })
+                  }
+                  required
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/40 bg-white text-slate-800 text-xs sm:text-sm font-normal"
+                >
+                  {assetConditions.map((condition) => (
+                    <option key={condition} value={condition}>
+                      {condition.replace("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                  Assign To User
+                </label>
+                <select
+                  value={assetFormData.assigned_to_user_id}
+                  onChange={(e) =>
+                    setAssetFormData({ ...assetFormData, assigned_to_user_id: e.target.value })
+                  }
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/40 bg-white text-slate-800 text-xs sm:text-sm font-normal"
+                >
+                  <option value="">Unassigned</option>
+                  {users.filter(u => u.is_active).map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">
+                  Department
+                </label>
+                <select
+                  value={assetFormData.department_id}
+                  onChange={(e) =>
+                    setAssetFormData({ ...assetFormData, department_id: e.target.value })
+                  }
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/40 bg-white text-slate-800 text-xs sm:text-sm font-normal"
+                >
+                  <option value="">No department</option>
+                  {departments.filter(d => d.is_active).map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAssetModal(false)}
+                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 font-semibold text-xs sm:text-sm transition-all duration-200 order-2 sm:order-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 btn-primary rounded-xl font-semibold text-xs sm:text-sm disabled:opacity-50 flex items-center justify-center gap-2 order-1 sm:order-2"
+                >
+                  {submitting ? (
+                    <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    "Add Asset"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
