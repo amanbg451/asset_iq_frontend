@@ -1112,7 +1112,7 @@ export default function DashboardPage() {
         .fade-in  { animation:fadeIn 0.25s ease both; }
         .slide-dn { animation:slideDown 0.2s cubic-bezier(0.4,0,0.2,1) both; }
 
-        .stat-card { cursor:pointer; }
+        .stat-card { cursor:default; } /* <--- CHANGE: Cursor fixed to default, not pointer */
         .stat-card:hover .si { transform:scale(1.12) rotate(-5deg); }
         .si { transition:transform 0.2s; display:flex;align-items:center;justify-content:center; }
 
@@ -1845,9 +1845,7 @@ export default function DashboardPage() {
                   padding: "15px 13px",
                   animationDelay: `${80 + i * 50}ms`,
                 }}
-                onClick={() =>
-                  router.push(`/${s.label.toLowerCase().replace(/ /g, "-")}`)
-                }
+                /* ❌ NAVIGATION REMOVED FROM HERE ❌ */
               >
                 <div
                   style={{
