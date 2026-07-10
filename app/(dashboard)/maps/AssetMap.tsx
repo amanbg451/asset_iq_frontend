@@ -32,6 +32,9 @@ interface AssetLocation {
   name: string | null;
   location_id: string | null;
   status?: string;
+  created_image_url?: string;
+  latest_image_url?: string;
+  qr_code_url?: string;
   [key: string]: any;
 }
 
@@ -84,6 +87,8 @@ const getMarkerIcon = (status?: string, isDark?: boolean) => {
     MAINTENANCE: "#eab308",
     TRANSIT: "#8b5cf6",
     DECOMMISSIONED: "#ef4444",
+    ACTIVE: "#22c55e",
+    Good: "#22c55e",
   };
 
   const color = status && colors[status] ? colors[status] : "#6b7280";
@@ -250,19 +255,6 @@ const AssetMap = forwardRef<AssetMapRef, AssetMapProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  
-  // Local state for the dialog
-  const [localSelectedAsset, setLocalSelectedAsset] = useState<AssetLocation | null>(null);
-
-  // Sync local state with parent's selectedAssetId
-  useEffect(() => {
-    if (selectedAssetId) {
-      const asset = assets.find(a => a.asset_id === selectedAssetId);
-      setLocalSelectedAsset(asset || null);
-    } else {
-      setLocalSelectedAsset(null);
-    }
-  }, [selectedAssetId, assets]);
 
   // ─── Calculate center based on assets ─────────────────────────────────────
   const getCenter = () => {
@@ -377,19 +369,12 @@ const AssetMap = forwardRef<AssetMapRef, AssetMapProps>(({
     }
   }, [fullscreen, isFullscreen, toggleFullscreen]);
 
-  // Handle closing the dialog locally
-  const handleCloseDialog = () => {
-    setLocalSelectedAsset(null);
-    // Notify parent to clear selection (optional, based on your parent logic)
-    // onAssetClick(null as any); 
-  };
-
   return (
     <div 
       ref={containerRef} 
       className={`relative w-full ${isFullscreen ? 'h-screen' : 'h-[600px]'} transition-all duration-300 overflow-hidden`}
     >
-      {/* --- 1. MAP CONTAINER (ABSOLUTE) --- */}
+      {/* --- MAP CONTAINER --- */}
       <div className="absolute inset-0 w-full h-full">
         <MapContainer
           center={[center.lat, center.lng]}
@@ -447,103 +432,7 @@ const AssetMap = forwardRef<AssetMapRef, AssetMapProps>(({
         </MapContainer>
       </div>
 
-      {/* --- 2. BEAUTIFUL FLOATING DIALOG (Using local state) --- */}
-      <AnimatePresence>
-        {localSelectedAsset && (
-          <>
-            {/* Backdrop Blur */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/20 backdrop-blur-[2px] z-[1000] pointer-events-none"
-            />
-
-            {/* Glassmorphism Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1001] w-full max-w-md p-6 rounded-2xl shadow-2xl border backdrop-blur-xl
-                ${mapMode === "dark" 
-                  ? "bg-gray-900/80 border-gray-700/50 text-white" 
-                  : "bg-white/80 border-gray-200/50 text-gray-900"
-                }`}
-            >
-              {/* Close Button (NOW WORKING) */}
-              <button
-                onClick={handleCloseDialog}
-                className="absolute top-4 right-4 p-2 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-
-              {/* Asset Header */}
-              <div className="mb-4">
-                <h3 className="text-2xl font-bold tracking-tight">
-                  {localSelectedAsset.name || "Unnamed Asset"}
-                </h3>
-                <div className="flex items-center justify-between mt-1">
-                  <p className="text-sm font-mono opacity-70">
-                    ID: {localSelectedAsset.asset_id.substring(0, 16)}...
-                  </p>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider
-                    ${localSelectedAsset.status === "AVAILABLE" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
-                    ${localSelectedAsset.status === "ASSIGNED" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : ""}
-                    ${localSelectedAsset.status === "MAINTENANCE" ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400" : ""}
-                    ${localSelectedAsset.status === "TRANSIT" ? "bg-purple-500/20 text-purple-600 dark:text-purple-400" : ""}
-                    ${localSelectedAsset.status === "DECOMMISSIONED" ? "bg-red-500/20 text-red-600 dark:text-red-400" : ""}
-                  `}>
-                    {localSelectedAsset.status || "UNKNOWN"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Coordinates */}
-              <div className="mb-4 p-3 rounded-xl bg-black/5 dark:bg-white/5 backdrop-blur-sm">
-                <p className="text-xs uppercase tracking-wider font-semibold opacity-50 mb-1">📍 Location</p>
-                <p className="font-mono text-sm">
-                  {localSelectedAsset.current_latitude?.toFixed(6)}, {localSelectedAsset.current_longitude?.toFixed(6)}
-                </p>
-              </div>
-
-              {/* Other Details Placeholder */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {localSelectedAsset.serial_number && (
-                  <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 backdrop-blur-sm">
-                    <p className="text-[10px] uppercase tracking-wider font-semibold opacity-50">Serial</p>
-                    <p className="text-sm font-mono truncate">{localSelectedAsset.serial_number}</p>
-                  </div>
-                )}
-                {localSelectedAsset.model && (
-                  <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 backdrop-blur-sm">
-                    <p className="text-[10px] uppercase tracking-wider font-semibold opacity-50">Model</p>
-                    <p className="text-sm font-medium truncate">{localSelectedAsset.model}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Action Button */}
-              <button
-                onClick={() => {
-                  // Close dialog and then notify parent if needed
-                  handleCloseDialog();
-                  // Optionally tell parent to open its own drawer too
-                  // onAssetClick(localSelectedAsset);
-                }}
-                className="w-full py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-semibold shadow-lg shadow-red-500/25 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
-              >
-                View Full Asset Details →
-              </button>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* --- 3. LEGEND (OUTSIDE MAPCONTAINER, ON TOP) --- */}
+      {/* --- LEGEND --- */}
       <div className={`absolute bottom-4 left-4 z-[50] backdrop-blur-sm rounded-lg shadow-lg p-3 border transition-colors duration-300 pointer-events-auto
         ${mapMode === "dark" 
           ? "bg-gray-800/90 border-gray-700" 
@@ -577,7 +466,7 @@ const AssetMap = forwardRef<AssetMapRef, AssetMapProps>(({
         </div>
       </div>
 
-      {/* --- 4. ZOOM HINT --- */}
+      {/* --- ZOOM HINT --- */}
       <div className={`absolute bottom-4 right-4 z-[50] backdrop-blur-sm rounded-lg shadow-lg p-2 text-xs transition-colors duration-300 pointer-events-none
         ${mapMode === "dark" 
           ? "bg-gray-800/90 text-gray-400" 
@@ -587,7 +476,7 @@ const AssetMap = forwardRef<AssetMapRef, AssetMapProps>(({
         🖱️ Scroll to zoom
       </div>
 
-      {/* --- 5. HEATMAP INDICATOR --- */}
+      {/* --- HEATMAP INDICATOR --- */}
       {showHeatmap && (
         <div className={`absolute top-4 right-4 z-[50] backdrop-blur-sm rounded-lg shadow-lg px-3 py-1.5 text-xs font-medium transition-colors duration-300 pointer-events-none
           ${mapMode === "dark" 

@@ -21,6 +21,24 @@ interface SubMenuItem {
   icon: ReactNode;
 }
 
+// Helper function for default icons
+const getDefaultIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="16" />
+    <line x1="8" y1="12" x2="16" y2="12" />
+  </svg>
+);
+
 const serviceMenuMap: ServiceMenuItem[] = [
   {
     code: "USER_MANAGEMENT",
@@ -86,6 +104,26 @@ const serviceMenuMap: ServiceMenuItem[] = [
     ),
     submenu: [
       {
+        name: "All Assets",
+        path: "/assets",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <rect x="2" y="2" width="20" height="20" rx="2" />
+            <line x1="2" y1="9" x2="22" y2="9" />
+            <line x1="2" y1="15" x2="22" y2="15" />
+            <line x1="9" y1="2" x2="9" y2="22" />
+            <line x1="15" y1="2" x2="15" y2="22" />
+          </svg>
+        ),
+      },
+      {
         name: "Asset Categories",
         path: "/assets/categories",
         icon: (
@@ -121,9 +159,63 @@ const serviceMenuMap: ServiceMenuItem[] = [
           </svg>
         ),
       },
+      {
+        name: "Locations",
+        path: "/locations",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+            <circle cx="12" cy="10" r="3" />
+          </svg>
+        ),
+      },
+      {
+        name: "Department",
+        path: "/departments",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M20 7h-4.18A3 3 0 0016 5.18V4a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2z" />
+            <line x1="8" y1="12" x2="16" y2="12" />
+            <line x1="8" y1="8" x2="16" y2="8" />
+          </svg>
+        ),
+      },
+      {
+        name: "Users",
+        path: "/users",
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 00-3-3.87" />
+            <path d="M16 3.13a4 4 0 010 7.75" />
+          </svg>
+        ),
+      },
     ],
   },
-  // ─── NEW: MAPS MENU ITEM ──────────────────────────────────────────────
+  // ─── MAPS MENU ITEM (standalone - only show if Maps is a separate service) ───
   {
     code: "MAPS",
     name: "Maps",
@@ -145,7 +237,6 @@ const serviceMenuMap: ServiceMenuItem[] = [
       </svg>
     ),
   },
-  // ──────────────────────────────────────────────────────────────────────────
   {
     code: "TRACKING",
     name: "Tracking",
@@ -474,6 +565,54 @@ export default function Sidebar() {
     }
   };
 
+  const getAssetManagementSubmenu = () => [
+    {
+      name: "All Assets",
+      path: "/assets",
+      icon: (
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <rect x="2" y="2" width="20" height="20" rx="2" />
+          <line x1="2" y1="9" x2="22" y2="9" />
+          <line x1="2" y1="15" x2="22" y2="15" />
+          <line x1="9" y1="2" x2="9" y2="22" />
+          <line x1="15" y1="2" x2="15" y2="22" />
+        </svg>
+      ),
+    },
+    {
+      name: "Asset Categories",
+      path: "/assets/categories",
+      icon: getDefaultIcon(),
+    },
+    {
+      name: "Asset Types",
+      path: "/assets/types",
+      icon: getDefaultIcon(),
+    },
+    {
+      name: "Locations",
+      path: "/locations",
+      icon: getDefaultIcon(),
+    },
+    {
+      name: "Department",
+      path: "/departments",
+      icon: getDefaultIcon(),
+    },
+    {
+      name: "Users",
+      path: "/users",
+      icon: getDefaultIcon(),
+    },
+  ];
+
   const fetchServicesAndBuildMenu = async () => {
     try {
       const role = getUserRole();
@@ -527,21 +666,89 @@ export default function Sidebar() {
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
         ];
 
+        // Track if ASSET_MANAGEMENT is found
+        let assetManagementFound = false;
+        let hasMapsStandalone = false;
+
+        // First, add all purchased services
         purchasedServices.forEach((service: { code: string; name: string }) => {
           const menuItem = serviceMenuMap.find((s) => s.code === service.code);
           if (menuItem && userPermissions[service.code]?.can_read !== false) {
+            // Check if this is ASSET_MANAGEMENT
+            if (service.code === "ASSET_MANAGEMENT") {
+              assetManagementFound = true;
+              // Create a modified menu item with ALL submenus
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: getAssetManagementSubmenu(),
+              });
+            } else if (service.code === "MAPS") {
+              hasMapsStandalone = true;
+              // Only add standalone Maps if it's a separate service
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            } else {
+              // For other services, use their defined submenus
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
+          }
+        });
+
+        // If ASSET_MANAGEMENT was NOT found in purchased services but user has permission
+        if (!assetManagementFound && userPermissions["ASSET_MANAGEMENT"]?.can_read) {
+          const assetMenu = serviceMenuMap.find(s => s.code === "ASSET_MANAGEMENT");
+          if (assetMenu) {
             menuItems.push({
-              name: menuItem.name,
-              path: menuItem.path,
-              icon: menuItem.icon,
-              submenu: menuItem.submenu?.map((sub) => ({
+              name: assetMenu.name,
+              path: assetMenu.path,
+              icon: assetMenu.icon,
+              submenu: getAssetManagementSubmenu(),
+            });
+          }
+        }
+
+        // Add standalone Maps ONLY if it's a separate service and not already added as submenu
+        const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
+        if (mapsService && userPermissions["MAPS"]?.can_read !== false && !hasMapsStandalone) {
+          // Check if MAPS is already added as submenu (under Assets)
+          const existingMapsSubmenu = menuItems.some(item => 
+            item.submenu?.some(sub => sub.path === "/maps")
+          );
+          // Check if MAPS is already a standalone item
+          const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
+          
+          if (!existingMapsSubmenu && !existingMapsStandalone) {
+            menuItems.push({
+              name: mapsService.name,
+              path: mapsService.path,
+              icon: mapsService.icon,
+              submenu: mapsService.submenu?.map((sub) => ({
                 name: sub.name,
                 path: sub.path,
                 icon: sub.icon,
               })),
             });
           }
-        });
+        }
 
         menuItems.push({
           name: "Settings",
@@ -571,29 +778,78 @@ export default function Sidebar() {
 
         const managerModules = [
           "ASSET_MANAGEMENT",
-          "MAPS", // Add Maps for Manager
           "TRACKING",
           "REPORTS",
           "AUDITS",
           "MAINTENANCE",
         ];
+        
+        let hasMapsStandalone = false;
+
         serviceMenuMap.forEach((menuItem) => {
           if (
             managerModules.includes(menuItem.code) &&
             userPermissions[menuItem.code]?.can_read !== false
           ) {
-            menuItems.push({
-              name: menuItem.name,
-              path: menuItem.path,
-              icon: menuItem.icon,
-              submenu: menuItem.submenu?.map((sub) => ({
-                name: sub.name,
-                path: sub.path,
-                icon: sub.icon,
-              })),
-            });
+            // If ASSET_MANAGEMENT, add all submenus (including Maps inside)
+            if (menuItem.code === "ASSET_MANAGEMENT") {
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: getAssetManagementSubmenu(),
+              });
+            } else if (menuItem.code === "MAPS") {
+              hasMapsStandalone = true;
+              // Only add standalone Maps if it's a separate service
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            } else {
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
           }
         });
+
+        // Add standalone Maps if not already added
+        if (!hasMapsStandalone) {
+          const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
+          if (mapsService && userPermissions["MAPS"]?.can_read !== false) {
+            const existingMapsSubmenu = menuItems.some(item => 
+              item.submenu?.some(sub => sub.path === "/maps")
+            );
+            const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
+            
+            if (!existingMapsSubmenu && !existingMapsStandalone) {
+              menuItems.push({
+                name: mapsService.name,
+                path: mapsService.path,
+                icon: mapsService.icon,
+                submenu: mapsService.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
+          }
+        }
 
         menuItems.push({
           name: "Settings",
@@ -621,20 +877,68 @@ export default function Sidebar() {
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
         ];
 
+        let hasMapsStandalone = false;
+
         serviceMenuMap.forEach((menuItem) => {
           if (userPermissions[menuItem.code]?.can_read === true) {
-            menuItems.push({
-              name: menuItem.name,
-              path: menuItem.path,
-              icon: menuItem.icon,
-              submenu: menuItem.submenu?.map((sub) => ({
-                name: sub.name,
-                path: sub.path,
-                icon: sub.icon,
-              })),
-            });
+            // If ASSET_MANAGEMENT, add all submenus
+            if (menuItem.code === "ASSET_MANAGEMENT") {
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: getAssetManagementSubmenu(),
+              });
+            } else if (menuItem.code === "MAPS") {
+              hasMapsStandalone = true;
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            } else {
+              menuItems.push({
+                name: menuItem.name,
+                path: menuItem.path,
+                icon: menuItem.icon,
+                submenu: menuItem.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
           }
         });
+
+        // Add standalone Maps if not already added
+        if (!hasMapsStandalone) {
+          const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
+          if (mapsService && userPermissions["MAPS"]?.can_read === true) {
+            const existingMapsSubmenu = menuItems.some(item => 
+              item.submenu?.some(sub => sub.path === "/maps")
+            );
+            const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
+            
+            if (!existingMapsSubmenu && !existingMapsStandalone) {
+              menuItems.push({
+                name: mapsService.name,
+                path: mapsService.path,
+                icon: mapsService.icon,
+                submenu: mapsService.submenu?.map((sub) => ({
+                  name: sub.name,
+                  path: sub.path,
+                  icon: sub.icon,
+                })),
+              });
+            }
+          }
+        }
 
         setDynamicMenuItems(menuItems);
         setLoading(false);

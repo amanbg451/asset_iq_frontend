@@ -107,16 +107,7 @@ const getUserRoleFromToken = () => {
   }
 };
 
-// Helper function to safely format dates
-const formatDate = (dateString?: string): string => {
-  if (!dateString) return 'N/A';
-  try {
-    return new Date(dateString).toLocaleDateString();
-  } catch {
-    return 'Invalid Date';
-  }
-};
-
+// Helper function to map API asset to AssetLocation
 const mapApiAssetToAssetLocation = (apiAsset: any): AssetLocation => {
   return {
     asset_id: apiAsset.id || apiAsset.asset_id,
@@ -320,6 +311,7 @@ export default function MapsPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
 
   const fetchClients = useCallback(async () => {
     try {
@@ -364,8 +356,7 @@ export default function MapsPage() {
       setLoading(true);
       const response = await api.get(`/map/asset?client_id=${selectedClient}`);
       const data = response.data;
-
-      // Handle both array and object responses
+      
       let assetsData = [];
       if (Array.isArray(data)) {
         assetsData = data;
@@ -375,9 +366,8 @@ export default function MapsPage() {
         assetsData = [];
       }
 
-      // Map the API data to our AssetLocation interface
       const enhancedAssets = assetsData.map(mapApiAssetToAssetLocation);
-
+      
       setAssets(enhancedAssets);
       setLastRefreshed(new Date());
       applyFilters(enhancedAssets);
@@ -396,32 +386,29 @@ export default function MapsPage() {
   const applyFilters = useCallback(
     (assetsList: AssetLocation[]) => {
       let filtered = [...assetsList];
-
+      
       if (selectedStatus) {
         filtered = filtered.filter((a) => a.status === selectedStatus);
       }
-
+      
       if (selectedDepartment) {
         filtered = filtered.filter(
-          (a) =>
-            a.department_id === selectedDepartment ||
-            a.department === selectedDepartment,
+          (a) => a.department_id === selectedDepartment || a.department === selectedDepartment
         );
       }
-
+      
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         filtered = filtered.filter(
           (a) =>
             (a.name && a.name.toLowerCase().includes(query)) ||
             (a.asset_id && a.asset_id.toLowerCase().includes(query)) ||
-            (a.serial_number &&
-              a.serial_number.toLowerCase().includes(query)) ||
+            (a.serial_number && a.serial_number.toLowerCase().includes(query)) ||
             (a.model && a.model.toLowerCase().includes(query)) ||
-            (a.manufacturer && a.manufacturer.toLowerCase().includes(query)),
+            (a.manufacturer && a.manufacturer.toLowerCase().includes(query))
         );
       }
-
+      
       if (dateRange.from) {
         filtered = filtered.filter((a) => {
           if (!a.last_scanned_at && !a.created_at) return false;
@@ -429,7 +416,7 @@ export default function MapsPage() {
           return new Date() >= new Date(dateRange.from);
         });
       }
-
+      
       if (dateRange.to) {
         filtered = filtered.filter((a) => {
           if (!a.last_scanned_at && !a.created_at) return false;
@@ -437,7 +424,7 @@ export default function MapsPage() {
           return new Date() <= new Date(dateRange.to);
         });
       }
-
+      
       setFilteredAssets(filtered);
     },
     [selectedStatus, selectedDepartment, searchQuery, dateRange],
@@ -506,11 +493,13 @@ export default function MapsPage() {
   const handleAssetClick = useCallback((asset: AssetLocation) => {
     setSelectedAsset(asset);
     setShowPanel(true);
+    setImageError(false);
   }, []);
 
   const handleClosePanel = useCallback(() => {
     setShowPanel(false);
     setSelectedAsset(null);
+    setImageError(false);
   }, []);
 
   const resetFilters = useCallback(() => {
@@ -631,6 +620,11 @@ export default function MapsPage() {
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return `${Math.floor(diff / 3600)}h ago`;
   }, [lastRefreshed]);
+
+  // Get image URL helper
+  const getImageUrl = (asset: AssetLocation) => {
+    return asset.latest_image_url || asset.created_image_url || null;
+  };
 
   if (!mounted) {
     return (
@@ -975,9 +969,10 @@ export default function MapsPage() {
                     No Assets Found
                   </h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {assets.length > 0
+                    {assets.length > 0 
                       ? "Try adjusting your filters to see more assets"
-                      : "No assets available for the selected client"}
+                      : "No assets available for the selected client"
+                    }
                   </p>
                   {assets.length > 0 && (
                     <button
@@ -1026,42 +1021,54 @@ export default function MapsPage() {
                   onClick={handleClosePanel}
                   className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
-                  <svg
-                    className="w-5 h-5 text-gray-500 dark:text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
+                  <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
 
               {/* Content */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Asset Image */}
+                {getImageUrl(selectedAsset) && (
+                  <div className="relative w-full h-56 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800">
+                    <img
+                      src={getImageUrl(selectedAsset)!}
+                      alt={selectedAsset.name || "Asset Image"}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        // Show fallback
+                        const parent = target.parentElement;
+                        if (parent) {
+                          const fallback = document.createElement('div');
+                          fallback.className = 'w-full h-full flex items-center justify-center text-6xl';
+                          fallback.textContent = '📦';
+                          parent.appendChild(fallback);
+                        }
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
+                  </div>
+                )}
+
                 {/* Status Badge */}
                 <div className="flex items-center gap-3">
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider
-                    ${selectedAsset.status === "AVAILABLE" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider
+                    ${selectedAsset.status === "AVAILABLE" || selectedAsset.status === "ACTIVE" || selectedAsset.status === "Good" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
                     ${selectedAsset.status === "ASSIGNED" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : ""}
                     ${selectedAsset.status === "MAINTENANCE" ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400" : ""}
                     ${selectedAsset.status === "TRANSIT" ? "bg-purple-500/20 text-purple-600 dark:text-purple-400" : ""}
                     ${selectedAsset.status === "DECOMMISSIONED" ? "bg-red-500/20 text-red-600 dark:text-red-400" : ""}
-                    ${selectedAsset.status === "ACTIVE" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
-                    ${selectedAsset.status === "Good" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
-                  `}
-                  >
+                  `}>
                     {selectedAsset.status || "UNKNOWN"}
                   </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {selectedAsset.tag_state || "TAGGED"}
-                  </span>
+                  {selectedAsset.tag_state && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {selectedAsset.tag_state}
+                    </span>
+                  )}
                 </div>
 
                 {/* ID */}
@@ -1080,8 +1087,7 @@ export default function MapsPage() {
                     📍 Location
                   </p>
                   <p className="text-sm font-mono text-gray-900 dark:text-white mt-1">
-                    {selectedAsset.current_latitude?.toFixed(6)},{" "}
-                    {selectedAsset.current_longitude?.toFixed(6)}
+                    {selectedAsset.current_latitude?.toFixed(6)}, {selectedAsset.current_longitude?.toFixed(6)}
                   </p>
                 </div>
 
@@ -1149,7 +1155,7 @@ export default function MapsPage() {
                         Created
                       </p>
                       <p className="text-xs text-gray-900 dark:text-white mt-1">
-                        {formatDate(selectedAsset.created_at)}
+                        {new Date(selectedAsset.created_at).toLocaleDateString()}
                       </p>
                     </div>
                   )}
@@ -1159,27 +1165,7 @@ export default function MapsPage() {
                         Last Scanned
                       </p>
                       <p className="text-xs text-gray-900 dark:text-white mt-1">
-                        {formatDate(selectedAsset.last_scanned_at)}
-                      </p>
-                    </div>
-                  )}
-                  {selectedAsset.purchase_date && (
-                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
-                        Purchase Date
-                      </p>
-                      <p className="text-xs text-gray-900 dark:text-white mt-1">
-                        {formatDate(selectedAsset.purchase_date)}
-                      </p>
-                    </div>
-                  )}
-                  {selectedAsset.updated_at && (
-                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
-                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
-                        Updated
-                      </p>
-                      <p className="text-xs text-gray-900 dark:text-white mt-1">
-                        {formatDate(selectedAsset.updated_at)}
+                        {new Date(selectedAsset.last_scanned_at).toLocaleDateString()}
                       </p>
                     </div>
                   )}
@@ -1191,10 +1177,14 @@ export default function MapsPage() {
                     <p className="text-xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400 mb-2">
                       QR Code
                     </p>
-                    <img
-                      src={selectedAsset.qr_code_url}
+                    <img 
+                      src={selectedAsset.qr_code_url} 
                       alt="QR Code"
                       className="w-24 h-24 object-contain mx-auto"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                      }}
                     />
                   </div>
                 )}
@@ -1204,7 +1194,6 @@ export default function MapsPage() {
               <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
                 <button
                   onClick={() => {
-                    // Navigate to asset details page
                     router.push(`/assets/${selectedAsset.asset_id}`);
                   }}
                   className="w-full py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-semibold shadow-lg shadow-red-500/25 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
@@ -1213,20 +1202,12 @@ export default function MapsPage() {
                 </button>
                 <button
                   onClick={() => {
-                    // Center map on asset
                     if (mapRef.current?.getMap) {
                       const map = mapRef.current.getMap();
                       if (map) {
-                        map.flyTo(
-                          [
-                            selectedAsset.current_latitude,
-                            selectedAsset.current_longitude,
-                          ],
-                          15,
-                          {
-                            duration: 1.5,
-                          },
-                        );
+                        map.flyTo([selectedAsset.current_latitude, selectedAsset.current_longitude], 15, {
+                          duration: 1.5,
+                        });
                       }
                     }
                     handleClosePanel();
