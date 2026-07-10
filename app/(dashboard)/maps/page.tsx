@@ -19,12 +19,34 @@ interface AssetLocation {
   location_id: string | null;
   status?: string;
   department?: string;
+  department_id?: string;
   last_scanned_at?: string;
   created_at?: string;
   serial_number?: string;
   model?: string;
   manufacturer?: string;
   description?: string;
+  // Additional fields from API response
+  id?: string;
+  asset_condition?: string;
+  tag_state?: string;
+  is_active?: boolean;
+  purchase_value?: number;
+  qr_code_url?: string;
+  created_image_url?: string;
+  latest_image_url?: string;
+  remarks?: string;
+  category_id?: string;
+  type_id?: string;
+  parent_asset_id?: string | null;
+  created_by?: string;
+  last_scanned_by?: string;
+  updated_at?: string;
+  purchase_date?: string;
+  metadata_json?: any;
+  custom_fields?: any[];
+  client_id?: string;
+  assigned_to_user_id?: string;
 }
 
 interface Client {
@@ -83,6 +105,56 @@ const getUserRoleFromToken = () => {
   } catch {
     return "";
   }
+};
+
+// Helper function to safely format dates
+const formatDate = (dateString?: string): string => {
+  if (!dateString) return 'N/A';
+  try {
+    return new Date(dateString).toLocaleDateString();
+  } catch {
+    return 'Invalid Date';
+  }
+};
+
+const mapApiAssetToAssetLocation = (apiAsset: any): AssetLocation => {
+  return {
+    asset_id: apiAsset.id || apiAsset.asset_id,
+    current_latitude: apiAsset.current_latitude,
+    current_longitude: apiAsset.current_longitude,
+    name: apiAsset.name,
+    location_id: apiAsset.location_id,
+    status: apiAsset.asset_condition || apiAsset.status || "AVAILABLE",
+    department: apiAsset.department_id,
+    department_id: apiAsset.department_id,
+    last_scanned_at: apiAsset.last_scanned_at,
+    created_at: apiAsset.created_at,
+    serial_number: apiAsset.serial_number,
+    model: apiAsset.model,
+    manufacturer: apiAsset.manufacturer,
+    description: apiAsset.description,
+    // Preserve all original data
+    id: apiAsset.id,
+    asset_condition: apiAsset.asset_condition,
+    tag_state: apiAsset.tag_state,
+    is_active: apiAsset.is_active,
+    purchase_value: apiAsset.purchase_value,
+    qr_code_url: apiAsset.qr_code_url,
+    created_image_url: apiAsset.created_image_url,
+    latest_image_url: apiAsset.latest_image_url,
+    remarks: apiAsset.remarks,
+    category_id: apiAsset.category_id,
+    type_id: apiAsset.type_id,
+    parent_asset_id: apiAsset.parent_asset_id,
+    created_by: apiAsset.created_by,
+    last_scanned_by: apiAsset.last_scanned_by,
+    updated_at: apiAsset.updated_at,
+    purchase_date: apiAsset.purchase_date,
+    metadata_json: apiAsset.metadata_json,
+    custom_fields: apiAsset.custom_fields,
+    client_id: apiAsset.client_id,
+    assigned_to_user_id: apiAsset.assigned_to_user_id,
+  };
 };
 
 const AnimatedCounter = ({
@@ -292,10 +364,20 @@ export default function MapsPage() {
       setLoading(true);
       const response = await api.get(`/map/asset?client_id=${selectedClient}`);
       const data = response.data;
-      const enhancedAssets = (data.assets || []).map((asset: any) => ({
-        ...asset,
-        status: asset.status || "AVAILABLE",
-      }));
+
+      // Handle both array and object responses
+      let assetsData = [];
+      if (Array.isArray(data)) {
+        assetsData = data;
+      } else if (data.assets && Array.isArray(data.assets)) {
+        assetsData = data.assets;
+      } else {
+        assetsData = [];
+      }
+
+      // Map the API data to our AssetLocation interface
+      const enhancedAssets = assetsData.map(mapApiAssetToAssetLocation);
+
       setAssets(enhancedAssets);
       setLastRefreshed(new Date());
       applyFilters(enhancedAssets);
@@ -314,33 +396,48 @@ export default function MapsPage() {
   const applyFilters = useCallback(
     (assetsList: AssetLocation[]) => {
       let filtered = [...assetsList];
+
       if (selectedStatus) {
         filtered = filtered.filter((a) => a.status === selectedStatus);
       }
+
       if (selectedDepartment) {
-        filtered = filtered.filter((a) => a.department === selectedDepartment);
+        filtered = filtered.filter(
+          (a) =>
+            a.department_id === selectedDepartment ||
+            a.department === selectedDepartment,
+        );
       }
+
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         filtered = filtered.filter(
           (a) =>
             (a.name && a.name.toLowerCase().includes(query)) ||
             (a.asset_id && a.asset_id.toLowerCase().includes(query)) ||
-            (a.serial_number && a.serial_number.toLowerCase().includes(query)),
+            (a.serial_number &&
+              a.serial_number.toLowerCase().includes(query)) ||
+            (a.model && a.model.toLowerCase().includes(query)) ||
+            (a.manufacturer && a.manufacturer.toLowerCase().includes(query)),
         );
       }
+
       if (dateRange.from) {
         filtered = filtered.filter((a) => {
-          if (!a.last_scanned_at) return false;
-          return new Date(a.last_scanned_at) >= new Date(dateRange.from);
+          if (!a.last_scanned_at && !a.created_at) return false;
+          const date = a.last_scanned_at || a.created_at;
+          return new Date() >= new Date(dateRange.from);
         });
       }
+
       if (dateRange.to) {
         filtered = filtered.filter((a) => {
-          if (!a.last_scanned_at) return false;
-          return new Date(a.last_scanned_at) <= new Date(dateRange.to);
+          if (!a.last_scanned_at && !a.created_at) return false;
+          const date = a.last_scanned_at || a.created_at;
+          return new Date() <= new Date(dateRange.to);
         });
       }
+
       setFilteredAssets(filtered);
     },
     [selectedStatus, selectedDepartment, searchQuery, dateRange],
@@ -585,6 +682,11 @@ export default function MapsPage() {
                   <span className="font-medium">
                     {filteredAssets.length} assets displayed
                   </span>
+                  {lastRefreshed && (
+                    <span className="opacity-60">
+                      • Updated {getLastRefreshedText}
+                    </span>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -747,7 +849,7 @@ export default function MapsPage() {
                 onChange={(e) => setSelectedClient(e.target.value)}
                 className="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl border border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-gray-800/50 text-gray-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-red-500/50 backdrop-blur-sm transition-all duration-300 max-w-[120px] lg:max-w-full"
               >
-                <option value="">Client</option>
+                <option value="">Select Client</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.name}
@@ -762,12 +864,14 @@ export default function MapsPage() {
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl border border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-gray-800/50 text-gray-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-red-500/50 backdrop-blur-sm transition-all duration-300 max-w-[100px] lg:max-w-full"
             >
-              <option value="">Status</option>
+              <option value="">All Status</option>
               <option value="AVAILABLE">Available</option>
               <option value="ASSIGNED">Assigned</option>
               <option value="MAINTENANCE">Maintenance</option>
               <option value="TRANSIT">Transit</option>
-              <option value="DECOMMISSIONED">Decom.</option>
+              <option value="DECOMMISSIONED">Decommissioned</option>
+              <option value="ACTIVE">Active</option>
+              <option value="Good">Good</option>
             </motion.select>
 
             <motion.select
@@ -776,7 +880,7 @@ export default function MapsPage() {
               onChange={(e) => setSelectedDepartment(e.target.value)}
               className="px-2.5 lg:px-3 py-1.5 lg:py-2 rounded-xl border border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-gray-800/50 text-gray-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-red-500/50 backdrop-blur-sm transition-all duration-300 max-w-[100px] lg:max-w-full"
             >
-              <option value="">Dept.</option>
+              <option value="">All Depts</option>
               {departments.map((dept) => (
                 <option key={dept.id} value={dept.id}>
                   {dept.name}
@@ -788,7 +892,7 @@ export default function MapsPage() {
               <motion.input
                 whileFocus={{ scale: 1.02 }}
                 type="text"
-                placeholder="🔍 Search..."
+                placeholder="🔍 Search assets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full px-2.5 lg:px-3 py-1.5 lg:py-2 pl-7 lg:pl-9 rounded-xl border border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-gray-800/50 text-gray-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-red-500/50 backdrop-blur-sm transition-all duration-300"
@@ -863,6 +967,28 @@ export default function MapsPage() {
                   </p>
                 </div>
               </div>
+            ) : filteredAssets.length === 0 ? (
+              <div className="flex items-center justify-center h-[400px] sm:h-[500px] lg:h-[600px] bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900">
+                <div className="text-center max-w-md px-4">
+                  <div className="text-6xl mb-4">📍</div>
+                  <h3 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
+                    No Assets Found
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {assets.length > 0
+                      ? "Try adjusting your filters to see more assets"
+                      : "No assets available for the selected client"}
+                  </p>
+                  {assets.length > 0 && (
+                    <button
+                      onClick={resetFilters}
+                      className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+              </div>
             ) : (
               <AssetMap
                 ref={mapRef}
@@ -881,7 +1007,239 @@ export default function MapsPage() {
       </motion.div>
 
       {/* ─── ASSET DETAILS PANEL ────────────────────────────────────────────── */}
-      
+      <AnimatePresence>
+        {showPanel && selectedAsset && (
+          <motion.div
+            initial={{ opacity: 0, x: 300 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 300 }}
+            transition={{ type: "spring", damping: 25 }}
+            className="fixed right-0 top-0 h-full w-full sm:w-[400px] lg:w-[480px] z-[1000] bg-white dark:bg-gray-900 shadow-2xl shadow-black/20"
+          >
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
+                  {selectedAsset.name || "Asset Details"}
+                </h3>
+                <button
+                  onClick={handleClosePanel}
+                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <svg
+                    className="w-5 h-5 text-gray-500 dark:text-gray-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Status Badge */}
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider
+                    ${selectedAsset.status === "AVAILABLE" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
+                    ${selectedAsset.status === "ASSIGNED" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : ""}
+                    ${selectedAsset.status === "MAINTENANCE" ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400" : ""}
+                    ${selectedAsset.status === "TRANSIT" ? "bg-purple-500/20 text-purple-600 dark:text-purple-400" : ""}
+                    ${selectedAsset.status === "DECOMMISSIONED" ? "bg-red-500/20 text-red-600 dark:text-red-400" : ""}
+                    ${selectedAsset.status === "ACTIVE" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
+                    ${selectedAsset.status === "Good" ? "bg-green-500/20 text-green-600 dark:text-green-400" : ""}
+                  `}
+                  >
+                    {selectedAsset.status || "UNKNOWN"}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {selectedAsset.tag_state || "TAGGED"}
+                  </span>
+                </div>
+
+                {/* ID */}
+                <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                    Asset ID
+                  </p>
+                  <p className="text-sm font-mono text-gray-900 dark:text-white mt-1 break-all">
+                    {selectedAsset.asset_id}
+                  </p>
+                </div>
+
+                {/* Location */}
+                <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                    📍 Location
+                  </p>
+                  <p className="text-sm font-mono text-gray-900 dark:text-white mt-1">
+                    {selectedAsset.current_latitude?.toFixed(6)},{" "}
+                    {selectedAsset.current_longitude?.toFixed(6)}
+                  </p>
+                </div>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  {selectedAsset.serial_number && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Serial Number
+                      </p>
+                      <p className="text-sm font-mono text-gray-900 dark:text-white mt-1 truncate">
+                        {selectedAsset.serial_number}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.model && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Model
+                      </p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white mt-1 truncate">
+                        {selectedAsset.model}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.manufacturer && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Manufacturer
+                      </p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white mt-1 truncate">
+                        {selectedAsset.manufacturer}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.purchase_value !== undefined && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Purchase Value
+                      </p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white mt-1">
+                        ${selectedAsset.purchase_value.toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Description */}
+                {selectedAsset.description && (
+                  <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                    <p className="text-xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                      Description
+                    </p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                      {selectedAsset.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Dates */}
+                <div className="grid grid-cols-2 gap-3">
+                  {selectedAsset.created_at && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Created
+                      </p>
+                      <p className="text-xs text-gray-900 dark:text-white mt-1">
+                        {formatDate(selectedAsset.created_at)}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.last_scanned_at && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Last Scanned
+                      </p>
+                      <p className="text-xs text-gray-900 dark:text-white mt-1">
+                        {formatDate(selectedAsset.last_scanned_at)}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.purchase_date && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Purchase Date
+                      </p>
+                      <p className="text-xs text-gray-900 dark:text-white mt-1">
+                        {formatDate(selectedAsset.purchase_date)}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAsset.updated_at && (
+                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+                        Updated
+                      </p>
+                      <p className="text-xs text-gray-900 dark:text-white mt-1">
+                        {formatDate(selectedAsset.updated_at)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* QR Code */}
+                {selectedAsset.qr_code_url && (
+                  <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                    <p className="text-xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                      QR Code
+                    </p>
+                    <img
+                      src={selectedAsset.qr_code_url}
+                      alt="QR Code"
+                      className="w-24 h-24 object-contain mx-auto"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Actions */}
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                <button
+                  onClick={() => {
+                    // Navigate to asset details page
+                    router.push(`/assets/${selectedAsset.asset_id}`);
+                  }}
+                  className="w-full py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-semibold shadow-lg shadow-red-500/25 hover:shadow-red-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+                >
+                  View Full Details →
+                </button>
+                <button
+                  onClick={() => {
+                    // Center map on asset
+                    if (mapRef.current?.getMap) {
+                      const map = mapRef.current.getMap();
+                      if (map) {
+                        map.flyTo(
+                          [
+                            selectedAsset.current_latitude,
+                            selectedAsset.current_longitude,
+                          ],
+                          15,
+                          {
+                            duration: 1.5,
+                          },
+                        );
+                      }
+                    }
+                    handleClosePanel();
+                  }}
+                  className="w-full py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-xl font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-200"
+                >
+                  📍 Center on Map
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
