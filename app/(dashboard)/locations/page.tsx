@@ -7,15 +7,12 @@ import toast from "react-hot-toast";
 import { z } from "zod";
 import api from "@/app/lib/api";
 
-// ─── TYPES ────────────────────────────────────────────────
-
 interface LocationPath {
   id?: string;
   name: string;
   location_type: "COUNTRY" | "STATE" | "CITY" | "OFFICE";
 }
 
-// Location from /location/cards
 interface Location {
   id: string;
   name: string;
@@ -24,7 +21,6 @@ interface Location {
   path?: LocationPath[];
 }
 
-// Location hierarchy from /location/{id}/leaf-path
 interface LocationHierarchy {
   leaf_id: string;
   leaf_name: string;
@@ -34,8 +30,6 @@ interface LocationHierarchy {
 
 type ViewMode = "table" | "grid";
 type ModalType = "create" | "view" | "migrate" | "close" | null;
-
-// ─── ZOD SCHEMAS ──────────────────────────────────────────
 
 const locationPathSchema = z.object({
   name: z.string().min(1, "Location name is required"),
@@ -51,12 +45,8 @@ const migrateLocationSchema = z.object({
   path: z.array(locationPathSchema).min(1, "Destination path is required"),
 });
 
-// ─── MAIN COMPONENT ─────────────────────────────────────
-
 export default function LocationsPage() {
   const router = useRouter();
-
-  // ─── STATE ────────────────────────────────────────────────
 
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,21 +54,18 @@ export default function LocationsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [mounted, setMounted] = useState(false);
 
-  // Modal states
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedLocation, setSelectedLocation] = useState<
     Location | LocationHierarchy | null
   >(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Create form state
   const [createPath, setCreatePath] = useState<LocationPath[]>([
     { name: "", location_type: "COUNTRY" },
   ]);
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
   const [createPreview, setCreatePreview] = useState("");
 
-  // Migrate form state
   const [migrateSource, setMigrateSource] = useState("");
   const [migratePath, setMigratePath] = useState<LocationPath[]>([
     { name: "", location_type: "COUNTRY" },
@@ -88,10 +75,7 @@ export default function LocationsPage() {
     {},
   );
 
-  // Close confirmation
   const [closeConfirmed, setCloseConfirmed] = useState(false);
-
-  // ─── HELPERS ──────────────────────────────────────────────
 
   const locationTypes = ["COUNTRY", "STATE", "CITY", "OFFICE"] as const;
 
@@ -113,7 +97,7 @@ export default function LocationsPage() {
   const getLocationTypeColor = (type: string) => {
     switch (type) {
       case "COUNTRY":
-        return "bg-blue-100 text-blue-700";
+        return "bg-red-100 text-red-700";
       case "STATE":
         return "bg-purple-100 text-purple-700";
       case "CITY":
@@ -125,7 +109,6 @@ export default function LocationsPage() {
     }
   };
 
-  // Helper to get display name from location
   const getDisplayName = (
     location: Location | LocationHierarchy | null,
   ): string => {
@@ -134,7 +117,6 @@ export default function LocationsPage() {
     return location.name;
   };
 
-  // Helper to get path from location
   const getPath = (
     location: Location | LocationHierarchy | null,
   ): LocationPath[] => {
@@ -143,7 +125,6 @@ export default function LocationsPage() {
     return location.path || [];
   };
 
-  // Helper to get full path from location
   const getFullPath = (
     location: Location | LocationHierarchy | null,
   ): string => {
@@ -151,8 +132,6 @@ export default function LocationsPage() {
     if ("full_path" in location) return location.full_path || "";
     return location.full_path || "";
   };
-
-  // ─── API CALLS ───────────────────────────────────────────
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -233,9 +212,6 @@ export default function LocationsPage() {
     }
   };
 
-  // ─── FORM HELPERS ──────────────────────────────────────
-
-  // Create form
   const resetCreateForm = () => {
     setCreatePath([{ name: "", location_type: "COUNTRY" }]);
     setCreateErrors({});
@@ -269,7 +245,6 @@ export default function LocationsPage() {
     const newPath = [...createPath];
     newPath[index] = { ...newPath[index], [field]: value };
     setCreatePath(newPath);
-    // Clear error for this field
     if (createErrors[`path[${index}].name`]) {
       const newErrors = { ...createErrors };
       delete newErrors[`path[${index}].name`];
@@ -312,7 +287,6 @@ export default function LocationsPage() {
     await createLocation(result.data);
   };
 
-  // Migrate form
   const resetMigrateForm = () => {
     setMigrateSource("");
     setMigratePath([{ name: "", location_type: "COUNTRY" }]);
@@ -392,8 +366,6 @@ export default function LocationsPage() {
     await migrateLocation(result.data);
   };
 
-  // ─── EFFECTS ────────────────────────────────────────────
-
   useEffect(() => {
     setMounted(true);
     const token = localStorage.getItem("access_token");
@@ -404,15 +376,11 @@ export default function LocationsPage() {
     fetchLocations();
   }, [router, fetchLocations]);
 
-  // ─── FILTERS ────────────────────────────────────────────
-
   const filteredLocations = locations.filter(
     (location) =>
       location.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       location.full_path?.toLowerCase().includes(searchTerm.toLowerCase()),
   );
-
-  // ─── RENDER ─────────────────────────────────────────────
 
   return (
     <>
@@ -460,7 +428,7 @@ export default function LocationsPage() {
         
         .modal-content::-webkit-scrollbar { width: 6px; }
         .modal-content::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 20px; }
-        .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #2563eb, #3b82f6); border-radius: 20px; }
+        .modal-content::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #dc2626, #b91c1c); border-radius: 20px; }
         
         .stat-card {
           background: white;
@@ -479,7 +447,7 @@ export default function LocationsPage() {
         }
         .location-card:hover {
           transform: translateY(-4px);
-          box-shadow: 0 12px 30px -12px rgba(0,0,0,0.15);
+          box-shadow: 0 12px 30px -12px rgba(220,38,38,0.15);
         }
         
         .input-fancy {
@@ -502,12 +470,12 @@ export default function LocationsPage() {
           transition: all 0.2s ease;
           color: #64748b;
         }
-        .view-toggle-btn:hover { border-color: #2563eb; color: #2563eb; }
+        .view-toggle-btn:hover { border-color: #dc2626; color: #dc2626; }
         .view-toggle-btn.active {
-          background: #2563eb;
+          background: #dc2626;
           color: white;
-          border-color: #2563eb;
-          box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+          border-color: #dc2626;
+          box-shadow: 0 2px 8px rgba(220,38,38,0.25);
         }
         
         .location-table {
@@ -537,7 +505,7 @@ export default function LocationsPage() {
           transition: background 0.15s ease;
         }
         .location-table tbody tr:hover {
-          background: #eff6ff;
+          background: #fef2f2;
         }
         
         .table-scroll {
@@ -578,15 +546,82 @@ export default function LocationsPage() {
           color: #991b1b;
           font-size: 14px;
         }
+        
+        /* ─── RED THEME INPUT STYLES ─── */
+        .input-red {
+          border: 1px solid #e5e7eb;
+          transition: all 0.2s ease;
+          background: #ffffff;
+          color: #1f2937;
+        }
+        .input-red:focus {
+          border-color: #dc2626;
+          ring: 2px solid rgba(220,38,38,0.2);
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(220,38,38,0.1);
+        }
+        .input-red::placeholder {
+          color: #9ca3af;
+          font-weight: 400;
+        }
+        .input-red:focus::placeholder {
+          color: #6b7280;
+        }
+        
+        .select-red {
+          border: 1px solid #e5e7eb;
+          transition: all 0.2s ease;
+          background: #ffffff;
+          color: #1f2937;
+        }
+        .select-red:focus {
+          border-color: #dc2626;
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(220,38,38,0.1);
+        }
+        
+        .btn-red-primary {
+          background: linear-gradient(135deg, #dc2626, #b91c1c);
+          color: white;
+          transition: all 0.3s ease;
+        }
+        .btn-red-primary:hover {
+          background: linear-gradient(135deg, #b91c1c, #991b1b);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(220,38,38,0.3);
+        }
+        
+        .btn-red-secondary {
+          background: #fef2f2;
+          color: #dc2626;
+          border: 1px solid #fecaca;
+          transition: all 0.3s ease;
+        }
+        .btn-red-secondary:hover {
+          background: #fee2e2;
+          border-color: #fca5a5;
+        }
+        
+        .bg-red-gradient {
+          background: linear-gradient(135deg, #dc2626, #b91c1c);
+        }
+        
+        .text-red-theme {
+          color: #dc2626;
+        }
+        
+        .ring-red-theme:focus {
+          ring: 2px solid rgba(220,38,38,0.3);
+        }
       `}</style>
 
-      <div className="min-h-screen bg-gradient-to-br from-white via-blue-50/15 to-white">
+      <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
         <div className="relative p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {/* ─── HEADER ─── */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3 fade-in-up">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-md">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md shadow-red-500/20">
                   <svg
                     width="18"
                     height="18"
@@ -623,7 +658,7 @@ export default function LocationsPage() {
 
               <button
                 onClick={() => setActiveModal("create")}
-                className="cursor-pointer flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5"
+                className="cursor-pointer flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md shadow-red-500/25 hover:shadow-lg hover:shadow-red-500/35 transition-all duration-300 transform hover:-translate-y-0.5"
               >
                 <svg
                   width="16"
@@ -646,7 +681,7 @@ export default function LocationsPage() {
           {!loading && locations.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6 fade-in-up">
               <div className="stat-card p-3 sm:p-4 flex items-center gap-2 sm:gap-4">
-                <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 flex items-center justify-center">
+                <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-100 to-red-50 flex items-center justify-center">
                   <span className="text-xl sm:text-2xl">📍</span>
                 </div>
                 <div>
@@ -711,7 +746,7 @@ export default function LocationsPage() {
                 placeholder="Search locations by name or path..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 sm:pl-11 py-2.5 sm:py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-400 text-sm"
+                className="w-full pl-10 sm:pl-11 py-2.5 sm:py-3 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 transition-all shadow-sm text-gray-800 placeholder-gray-500 text-sm"
               />
             </div>
 
@@ -739,7 +774,7 @@ export default function LocationsPage() {
           {/* ─── LOADING ─── */}
           {loading && (
             <div className="flex justify-center items-center py-20">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
+              <div className="w-10 h-10 sm:w-12 sm:h-12 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
             </div>
           )}
 
@@ -784,7 +819,7 @@ export default function LocationsPage() {
                               e.stopPropagation();
                               fetchLocationPath(location.id);
                             }}
-                            className="flex-1 px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm"
+                            className="flex-1 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm transition-all"
                           >
                             🌳 View Path
                           </button>
@@ -794,7 +829,7 @@ export default function LocationsPage() {
                               setSelectedLocation(location);
                               setActiveModal("close");
                             }}
-                            className="px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
+                            className="px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm transition-all"
                           >
                             ⚠️ Close
                           </button>
@@ -829,13 +864,12 @@ export default function LocationsPage() {
                           </tr>
                         ) : (
                           filteredLocations.map((location) => (
-                            // ⬇️ ADD onClick HERE ⬇️
                             <tr
                               key={location.id}
                               onClick={() =>
                                 router.push(`/locations/${location.id}`)
                               }
-                              className="cursor-pointer hover:bg-blue-50 transition-colors"
+                              className="cursor-pointer hover:bg-red-50 transition-colors"
                             >
                               <td className="font-semibold text-gray-900">
                                 <span className="mr-2">
@@ -857,31 +891,31 @@ export default function LocationsPage() {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={(e) => {
-                                      e.stopPropagation(); // ⬅️ PREVENTS row click
+                                      e.stopPropagation();
                                       fetchLocationPath(location.id);
                                     }}
-                                    className="px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-xs"
+                                    className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 text-xs transition-all"
                                   >
                                     View
                                   </button>
                                   <button
                                     onClick={(e) => {
-                                      e.stopPropagation(); // ⬅️ PREVENTS row click
+                                      e.stopPropagation();
                                       setSelectedLocation(location);
                                       setActiveModal("migrate");
                                       setMigrateSource(location.id);
                                     }}
-                                    className="px-3 py-1 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-xs"
+                                    className="px-3 py-1 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-xs transition-all"
                                   >
                                     Migrate
                                   </button>
                                   <button
                                     onClick={(e) => {
-                                      e.stopPropagation(); // ⬅️ PREVENTS row click
+                                      e.stopPropagation();
                                       setSelectedLocation(location);
                                       setActiveModal("close");
                                     }}
-                                    className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 text-xs"
+                                    className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 text-xs transition-all"
                                   >
                                     Close
                                   </button>
@@ -915,7 +949,7 @@ export default function LocationsPage() {
               {!searchTerm && (
                 <button
                   onClick={() => setActiveModal("create")}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-semibold"
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-semibold"
                 >
                   + Add Location
                 </button>
@@ -964,7 +998,7 @@ export default function LocationsPage() {
                       Level {index + 1}
                     </span>
                     <select
-                      className="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                      className="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500/40 select-red"
                       value={item.location_type}
                       onChange={(e) =>
                         updateCreateLevel(
@@ -983,7 +1017,11 @@ export default function LocationsPage() {
                     <input
                       type="text"
                       placeholder={`Enter ${item.location_type.toLowerCase()} name`}
-                      className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 transition text-sm ${createErrors[`path[${index}].name`] ? "border-red-500 focus:ring-red-400/50" : "border-gray-200 focus:ring-blue-400/50"}`}
+                      className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 transition text-sm input-red ${
+                        createErrors[`path[${index}].name`] 
+                          ? "border-red-500 focus:ring-red-400/50" 
+                          : "border-gray-200 focus:ring-red-400/50"
+                      }`}
                       value={item.name}
                       onChange={(e) =>
                         updateCreateLevel(index, "name", e.target.value)
@@ -1004,7 +1042,7 @@ export default function LocationsPage() {
               <button
                 type="button"
                 onClick={addCreateLevel}
-                className="text-blue-500 hover:text-blue-700 text-sm font-medium"
+                className="text-red-500 hover:text-red-700 text-sm font-medium"
               >
                 + Add Level
               </button>
@@ -1020,7 +1058,7 @@ export default function LocationsPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 min-w-[120px] px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm"
+                  className="flex-1 min-w-[120px] px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md shadow-red-500/25"
                 >
                   {submitting ? (
                     <>
@@ -1041,11 +1079,11 @@ export default function LocationsPage() {
               </div>
 
               {createPreview && (
-                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
                   <p className="font-medium text-sm text-gray-700">
                     Preview Path:
                   </p>
-                  <p className="text-lg font-semibold text-blue-700">
+                  <p className="text-lg font-semibold text-red-700">
                     {createPreview}
                   </p>
                 </div>
@@ -1108,10 +1146,10 @@ export default function LocationsPage() {
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold">Full Path:</span>{" "}
-                <span className="font-mono">
+                <span className="font-mono text-red-700">
                   {getFullPath(selectedLocation)}
                 </span>
               </p>
@@ -1180,7 +1218,7 @@ export default function LocationsPage() {
                   Source Location <span className="text-red-500">*</span>
                 </label>
                 <select
-                  className="w-full px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm"
+                  className="w-full px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/40 text-sm select-red"
                   value={migrateSource}
                   onChange={(e) => setMigrateSource(e.target.value)}
                 >
@@ -1207,7 +1245,7 @@ export default function LocationsPage() {
                   {migratePath.map((item, index) => (
                     <div key={index} className="flex items-center gap-3">
                       <select
-                        className="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                        className="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500/40 select-red"
                         value={item.location_type}
                         onChange={(e) =>
                           updateMigrateLevel(
@@ -1226,7 +1264,11 @@ export default function LocationsPage() {
                       <input
                         type="text"
                         placeholder={`Enter ${item.location_type.toLowerCase()} name`}
-                        className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 transition text-sm ${migrateErrors[`path[${index}].name`] ? "border-red-500 focus:ring-red-400/50" : "border-gray-200 focus:ring-blue-400/50"}`}
+                        className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 transition text-sm input-red ${
+                          migrateErrors[`path[${index}].name`]
+                            ? "border-red-500 focus:ring-red-400/50"
+                            : "border-gray-200 focus:ring-red-400/50"
+                        }`}
                         value={item.name}
                         onChange={(e) =>
                           updateMigrateLevel(index, "name", e.target.value)
@@ -1246,7 +1288,7 @@ export default function LocationsPage() {
                 <button
                   type="button"
                   onClick={addMigrateLevel}
-                  className="text-blue-500 hover:text-blue-700 text-sm font-medium mt-2"
+                  className="text-red-500 hover:text-red-700 text-sm font-medium mt-2"
                 >
                   + Add Level
                 </button>
@@ -1284,7 +1326,7 @@ export default function LocationsPage() {
                 <button
                   type="submit"
                   disabled={submitting || !migrateSource || !migrateConfirmed}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm"
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm shadow-md shadow-red-500/25"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1383,7 +1425,7 @@ export default function LocationsPage() {
                     closeLocation(locationId);
                   }}
                   disabled={submitting || !closeConfirmed}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm"
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-sm shadow-md shadow-red-500/25"
                 >
                   {submitting ? (
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

@@ -21,7 +21,6 @@ interface SubMenuItem {
   icon: ReactNode;
 }
 
-// Helper function for default icons
 const getDefaultIcon = () => (
   <svg
     width="16"
@@ -215,7 +214,6 @@ const serviceMenuMap: ServiceMenuItem[] = [
       },
     ],
   },
-  // ─── MAPS MENU ITEM (standalone - only show if Maps is a separate service) ───
   {
     code: "MAPS",
     name: "Maps",
@@ -666,18 +664,14 @@ export default function Sidebar() {
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
         ];
 
-        // Track if ASSET_MANAGEMENT is found
         let assetManagementFound = false;
         let hasMapsStandalone = false;
 
-        // First, add all purchased services
         purchasedServices.forEach((service: { code: string; name: string }) => {
           const menuItem = serviceMenuMap.find((s) => s.code === service.code);
           if (menuItem && userPermissions[service.code]?.can_read !== false) {
-            // Check if this is ASSET_MANAGEMENT
             if (service.code === "ASSET_MANAGEMENT") {
               assetManagementFound = true;
-              // Create a modified menu item with ALL submenus
               menuItems.push({
                 name: menuItem.name,
                 path: menuItem.path,
@@ -686,7 +680,6 @@ export default function Sidebar() {
               });
             } else if (service.code === "MAPS") {
               hasMapsStandalone = true;
-              // Only add standalone Maps if it's a separate service
               menuItems.push({
                 name: menuItem.name,
                 path: menuItem.path,
@@ -698,7 +691,6 @@ export default function Sidebar() {
                 })),
               });
             } else {
-              // For other services, use their defined submenus
               menuItems.push({
                 name: menuItem.name,
                 path: menuItem.path,
@@ -713,9 +705,13 @@ export default function Sidebar() {
           }
         });
 
-        // If ASSET_MANAGEMENT was NOT found in purchased services but user has permission
-        if (!assetManagementFound && userPermissions["ASSET_MANAGEMENT"]?.can_read) {
-          const assetMenu = serviceMenuMap.find(s => s.code === "ASSET_MANAGEMENT");
+        if (
+          !assetManagementFound &&
+          userPermissions["ASSET_MANAGEMENT"]?.can_read
+        ) {
+          const assetMenu = serviceMenuMap.find(
+            (s) => s.code === "ASSET_MANAGEMENT",
+          );
           if (assetMenu) {
             menuItems.push({
               name: assetMenu.name,
@@ -726,16 +722,19 @@ export default function Sidebar() {
           }
         }
 
-        // Add standalone Maps ONLY if it's a separate service and not already added as submenu
-        const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
-        if (mapsService && userPermissions["MAPS"]?.can_read !== false && !hasMapsStandalone) {
-          // Check if MAPS is already added as submenu (under Assets)
-          const existingMapsSubmenu = menuItems.some(item => 
-            item.submenu?.some(sub => sub.path === "/maps")
+        const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
+        if (
+          mapsService &&
+          userPermissions["MAPS"]?.can_read !== false &&
+          !hasMapsStandalone
+        ) {
+          const existingMapsSubmenu = menuItems.some((item) =>
+            item.submenu?.some((sub) => sub.path === "/maps"),
           );
-          // Check if MAPS is already a standalone item
-          const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
-          
+          const existingMapsStandalone = menuItems.some(
+            (item) => item.path === "/maps",
+          );
+
           if (!existingMapsSubmenu && !existingMapsStandalone) {
             menuItems.push({
               name: mapsService.name,
@@ -783,7 +782,7 @@ export default function Sidebar() {
           "AUDITS",
           "MAINTENANCE",
         ];
-        
+
         let hasMapsStandalone = false;
 
         serviceMenuMap.forEach((menuItem) => {
@@ -791,7 +790,6 @@ export default function Sidebar() {
             managerModules.includes(menuItem.code) &&
             userPermissions[menuItem.code]?.can_read !== false
           ) {
-            // If ASSET_MANAGEMENT, add all submenus (including Maps inside)
             if (menuItem.code === "ASSET_MANAGEMENT") {
               menuItems.push({
                 name: menuItem.name,
@@ -801,7 +799,6 @@ export default function Sidebar() {
               });
             } else if (menuItem.code === "MAPS") {
               hasMapsStandalone = true;
-              // Only add standalone Maps if it's a separate service
               menuItems.push({
                 name: menuItem.name,
                 path: menuItem.path,
@@ -827,15 +824,16 @@ export default function Sidebar() {
           }
         });
 
-        // Add standalone Maps if not already added
         if (!hasMapsStandalone) {
-          const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
+          const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
           if (mapsService && userPermissions["MAPS"]?.can_read !== false) {
-            const existingMapsSubmenu = menuItems.some(item => 
-              item.submenu?.some(sub => sub.path === "/maps")
+            const existingMapsSubmenu = menuItems.some((item) =>
+              item.submenu?.some((sub) => sub.path === "/maps"),
             );
-            const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
-            
+            const existingMapsStandalone = menuItems.some(
+              (item) => item.path === "/maps",
+            );
+
             if (!existingMapsSubmenu && !existingMapsStandalone) {
               menuItems.push({
                 name: mapsService.name,
@@ -881,7 +879,6 @@ export default function Sidebar() {
 
         serviceMenuMap.forEach((menuItem) => {
           if (userPermissions[menuItem.code]?.can_read === true) {
-            // If ASSET_MANAGEMENT, add all submenus
             if (menuItem.code === "ASSET_MANAGEMENT") {
               menuItems.push({
                 name: menuItem.name,
@@ -916,15 +913,16 @@ export default function Sidebar() {
           }
         });
 
-        // Add standalone Maps if not already added
         if (!hasMapsStandalone) {
-          const mapsService = serviceMenuMap.find(s => s.code === "MAPS");
+          const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
           if (mapsService && userPermissions["MAPS"]?.can_read === true) {
-            const existingMapsSubmenu = menuItems.some(item => 
-              item.submenu?.some(sub => sub.path === "/maps")
+            const existingMapsSubmenu = menuItems.some((item) =>
+              item.submenu?.some((sub) => sub.path === "/maps"),
             );
-            const existingMapsStandalone = menuItems.some(item => item.path === "/maps");
-            
+            const existingMapsStandalone = menuItems.some(
+              (item) => item.path === "/maps",
+            );
+
             if (!existingMapsSubmenu && !existingMapsStandalone) {
               menuItems.push({
                 name: mapsService.name,
@@ -1356,7 +1354,7 @@ export default function Sidebar() {
             {!collapsed && (
               <div className="sidebar-item-enter">
                 <span className="text-black font-bold text-lg tracking-tight leading-none">
-                  AssetIQ
+                  AssetAi
                 </span>
               </div>
             )}

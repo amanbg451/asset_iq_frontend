@@ -15,7 +15,6 @@ import React from "react";
 import toast from "react-hot-toast";
 import api from "@/app/lib/api";
 
-// ─── Animated counter ─────────────────────────────────────────────────────────
 function useCountUp(target: number, duration = 1300, delay = 0, run: boolean) {
   const [value, setValue] = useState(0);
   useEffect(() => {
@@ -52,7 +51,6 @@ function AnimatedNumber({
   return <>{v.toLocaleString()}</>;
 }
 
-// ─── Memoized Sparkline ────────────────────────────────────────────────────────
 const Sparkline = React.memo(function Sparkline({
   data,
   color,
@@ -103,7 +101,6 @@ const Sparkline = React.memo(function Sparkline({
   );
 });
 
-// ─── Memoized Icon ─────────────────────────────────────────────────────────────
 const Icon = React.memo(function Icon({
   name,
   size = 18,
@@ -244,7 +241,6 @@ const Icon = React.memo(function Icon({
   );
 });
 
-// ─── Helper: Get user role from JWT token ───────────────────────────────────
 const getUserRoleFromToken = () => {
   const token = localStorage.getItem("access_token");
   if (!token) return "";
@@ -256,7 +252,6 @@ const getUserRoleFromToken = () => {
   }
 };
 
-// ─── Helper: Get client_id from JWT token ───────────────────────────────────
 const getClientIdFromToken = () => {
   const token = localStorage.getItem("access_token");
   if (!token) return null;
@@ -268,19 +263,6 @@ const getClientIdFromToken = () => {
   }
 };
 
-// ─── Helper: Get department_id from JWT token ──────────────────────────────
-const getDepartmentIdFromToken = () => {
-  const token = localStorage.getItem("access_token");
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.department_id || null;
-  } catch {
-    return null;
-  }
-};
-
-// ─── Dashboard Stats Interface ───────────────────────────────────────────────
 interface DashboardStats {
   departments: number;
   managers: number;
@@ -305,13 +287,17 @@ interface DashboardStats {
   };
 }
 
-// ─── Dashboard Response Types ────────────────────────────────────────────────
 interface PlatformDashboardResponse {
   level: "platform";
   summary: {
     clients: { total: number; active: number; inactive: number };
     subscriptions: { total: number; active: number; expired: number };
-    users: { total: number; client_admins: number; managers: number; users: number };
+    users: {
+      total: number;
+      client_admins: number;
+      managers: number;
+      users: number;
+    };
     departments: { total: number };
     assets: {
       total: number;
@@ -326,15 +312,45 @@ interface PlatformDashboardResponse {
       lost: number;
     };
   };
-  recent_clients: Array<{ id: string; name: string; client_code: string; is_active: boolean; created_at: string }>;
-  recent_subscriptions: Array<{ id: string; client_id: string; status: string; licence_count: number; used_licences: number; max_assets: number; max_departments: number; price: number; starts_at: string; ends_at: string; auto_renew: boolean; created_at: string }>;
+  recent_clients: Array<{
+    id: string;
+    name: string;
+    client_code: string;
+    is_active: boolean;
+    created_at: string;
+  }>;
+  recent_subscriptions: Array<{
+    id: string;
+    client_id: string;
+    status: string;
+    licence_count: number;
+    used_licences: number;
+    max_assets: number;
+    max_departments: number;
+    price: number;
+    starts_at: string;
+    ends_at: string;
+    auto_renew: boolean;
+    created_at: string;
+  }>;
 }
 
 interface ClientDashboardResponse {
   level: "client";
-  client: { id: string; name: string; client_code: string; is_active: boolean; created_at: string };
+  client: {
+    id: string;
+    name: string;
+    client_code: string;
+    is_active: boolean;
+    created_at: string;
+  };
   summary: {
-    users: { total: number; client_admins: number; managers: number; users: number };
+    users: {
+      total: number;
+      client_admins: number;
+      managers: number;
+      users: number;
+    };
     departments: { total: number };
     assets: {
       total: number;
@@ -364,14 +380,51 @@ interface ClientDashboardResponse {
     auto_renew: boolean;
     created_at: string;
   };
-  departments: Array<{ id: string; name: string; code: string; manager: string | null; total_users: number; total_assets: number; is_active: boolean }>;
-  recent_users: Array<{ id: string; full_name: string; email: string; role: string; department_id: string | null; created_at: string }>;
-  recent_assets: Array<{ id: string; name: string; serial_number: string; model: string; manufacturer: string; department_id: string; location_id: string; assigned_to_user_id: string; asset_condition: string; tag_state: string; current_latitude: number | null; current_longitude: number | null; latest_image_url: string; created_at: string }>;
+  departments: Array<{
+    id: string;
+    name: string;
+    code: string;
+    manager: string | null;
+    total_users: number;
+    total_assets: number;
+    is_active: boolean;
+  }>;
+  recent_users: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    role: string;
+    department_id: string | null;
+    created_at: string;
+  }>;
+  recent_assets: Array<{
+    id: string;
+    name: string;
+    serial_number: string;
+    model: string;
+    manufacturer: string;
+    department_id: string;
+    location_id: string;
+    assigned_to_user_id: string;
+    asset_condition: string;
+    tag_state: string;
+    current_latitude: number | null;
+    current_longitude: number | null;
+    latest_image_url: string;
+    created_at: string;
+  }>;
 }
 
 interface DepartmentDashboardResponse {
   level: "department";
-  department: { id: string; name: string; code: string; client_id: string; location_id: string | null; is_active: boolean };
+  department: {
+    id: string;
+    name: string;
+    code: string;
+    client_id: string;
+    location_id: string | null;
+    is_active: boolean;
+  };
   manager: string | null;
   summary: {
     team: { total_members: number; managers: number; users: number };
@@ -388,8 +441,53 @@ interface DepartmentDashboardResponse {
       lost: number;
     };
   };
-  team_members: Array<{ id: string; full_name: string; email: string; role: string; employee_id: string; profile_photo_url: string | null; created_at: string }>;
-  recent_assets: Array<{ id: string; name: string; serial_number: string; model: string; manufacturer: string; assigned_to_user_id: string; asset_condition: string; tag_state: string; location_id: string; current_latitude: number | null; current_longitude: number | null; latest_image_url: string; last_scanned_at: string | null; created_at: string }>;
+  team_members: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    role: string;
+    employee_id: string;
+    profile_photo_url: string | null;
+    created_at: string;
+  }>;
+  recent_assets: Array<{
+    id: string;
+    name: string;
+    serial_number: string;
+    model: string;
+    manufacturer: string;
+    assigned_to_user_id: string;
+    asset_condition: string;
+    tag_state: string;
+    location_id: string;
+    current_latitude: number | null;
+    current_longitude: number | null;
+    latest_image_url: string;
+    last_scanned_at: string | null;
+    created_at: string;
+  }>;
+}
+
+interface AssetLocation {
+  asset_id: string;
+  current_latitude: number;
+  current_longitude: number;
+  name: string | null;
+  location_id: string | null;
+  status?: string;
+  created_image_url?: string;
+  latest_image_url?: string;
+  qr_code_url?: string;
+  client_id?: string;
+  client_name?: string;
+  [key: string]: any;
+}
+
+interface Client {
+  id: string;
+  name: string;
+  client_code: string;
+  is_active: boolean;
 }
 
 const NOTIFICATIONS = [
@@ -542,8 +640,7 @@ const SEARCH_SUGGESTIONS = [
   { type: "transfer", label: "Transfer #T891", sub: "Pending" },
 ];
 
-// ─── Lazy load AssetMap ────────────────────────────────────────────────────────
-const AssetMap = dynamic(() => import("./AssetMap"), {
+const AssetMap = dynamic(() => import("../maps/AssetMap"), {
   ssr: false,
   loading: () => (
     <div
@@ -561,7 +658,6 @@ const AssetMap = dynamic(() => import("./AssetMap"), {
   ),
 });
 
-// ─── Error Boundary Component ───────────────────────────────────────────────────
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean }
@@ -605,7 +701,6 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// ─── Main Dashboard Component ───────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
@@ -625,12 +720,15 @@ export default function DashboardPage() {
   const [barsVisible, setBarsVisible] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(true);
-
-  // ─── Dashboard state ─────────────────────────────────────────────────────────
-  const [dashboardLevel, setDashboardLevel] = useState<"platform" | "client" | "department" | "user">("platform");
+  const [dashboardLevel, setDashboardLevel] = useState<
+    "platform" | "client" | "department" | "user"
+  >("platform");
   const [dashboardData, setDashboardData] = useState<any>(null);
-
-  // ─── Stats derived from dashboard data ──────────────────────────────────────
+  const [assetLocations, setAssetLocations] = useState<AssetLocation[]>([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [clientStats, setClientStats] = useState<DashboardStats>({
     departments: 0,
     managers: 0,
@@ -669,7 +767,82 @@ export default function DashboardPage() {
 
   const unread = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
 
-  // ─── Fetch dashboard data using unified endpoint ────────────────────────────
+  const fetchClients = useCallback(async () => {
+    if (userRole !== "ADMIN") return;
+    try {
+      setClientsLoading(true);
+      const response = await api.get("/clients");
+      const activeClients = (response.data || []).filter(
+        (c: Client) => c.is_active !== false,
+      );
+      setClients(activeClients);
+      setSelectedClientId("");
+    } catch (error: any) {
+      console.error("Error fetching clients:", error);
+    } finally {
+      setClientsLoading(false);
+    }
+  }, [userRole]);
+
+  const fetchAssetLocations = useCallback(async () => {
+    try {
+      setMapLoading(true);
+      const token = localStorage.getItem("access_token");
+      if (!token) return;
+
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const role = payload.role || "";
+
+      let clientId = null;
+
+      if (role === "ADMIN") {
+        clientId = selectedClientId || null;
+      } else {
+        clientId = payload.client_id || null;
+      }
+
+      if (!clientId && role !== "ADMIN") {
+        setAssetLocations([]);
+        return;
+      }
+
+      let url = "/map/asset";
+      if (clientId) {
+        url += `?client_id=${clientId}`;
+      }
+
+      const response = await api.get(url);
+      const data = response.data;
+
+      let assetsData = [];
+      if (Array.isArray(data)) {
+        assetsData = data;
+      } else if (data.assets && Array.isArray(data.assets)) {
+        assetsData = data.assets;
+      } else {
+        assetsData = [];
+      }
+      const mappedAssets = assetsData.map((asset: any) => ({
+        asset_id: asset.id || asset.asset_id,
+        current_latitude: asset.current_latitude,
+        current_longitude: asset.current_longitude,
+        name: asset.name,
+        location_id: asset.location_id,
+        status: asset.asset_condition || asset.status || "AVAILABLE",
+        created_image_url: asset.created_image_url,
+        latest_image_url: asset.latest_image_url,
+        qr_code_url: asset.qr_code_url,
+        client_id: asset.client_id,
+        ...asset,
+      }));
+
+      setAssetLocations(mappedAssets);
+    } catch (error: any) {
+      console.error("Error fetching asset locations:", error);
+    } finally {
+      setMapLoading(false);
+    }
+  }, [selectedClientId]);
   const fetchDashboardData = useCallback(async () => {
     try {
       setDashboardLoading(true);
@@ -683,61 +856,35 @@ export default function DashboardPage() {
       const role = payload.role || "";
       setUserRole(role);
       setUserEmail(payload.email || payload.name || "");
-
-      // Build query parameters based on role and available data
       const params = new URLSearchParams();
-      
-      // Get IDs from token
+
       const clientId = payload.client_id || null;
       const departmentId = payload.department_id || null;
-      const userId = payload.id || null;
-
-      // Determine which dashboard to fetch based on role and available IDs
-      // Priority: user_id > department_id > client_id > default
       if (role === "ADMIN") {
-        // Platform admin can view all, default is platform dashboard
-        // They can drill down using query params if needed
-        // For now, just use the default platform dashboard
-        // If we want to drill down, we would pass client_id, department_id, or user_id
+        if (selectedClientId) {
+          params.append("client_id", selectedClientId);
+        }
       } else if (role === "CLIENT_ADMIN") {
-        // Client admin can only see their own client
-        // Add client_id from token
-        if (clientId) {
-          params.append("client_id", clientId);
-        }
-        // They can also drill down to department if they have department_id
-        if (departmentId) {
-          params.append("department_id", departmentId);
-        }
+        if (clientId) params.append("client_id", clientId);
+        if (departmentId) params.append("department_id", departmentId);
       } else if (role === "MANAGER") {
-        // Manager can only see their own department
-        if (departmentId) {
-          params.append("department_id", departmentId);
-        }
-      } else if (role === "USER") {
-        // User can only see their own dashboard
-        // For user dashboard, we don't add any params - it auto-detects from token
-        // Or we can add user_id if needed
+        if (departmentId) params.append("department_id", departmentId);
       }
 
-      // Make the API call
       const queryString = params.toString();
       const endpoint = queryString ? `/dashboard?${queryString}` : "/dashboard";
-      
-      console.log("Fetching dashboard:", endpoint);
+
       const response = await api.get(endpoint);
       const data = response.data;
       setDashboardData(data);
       setDashboardLevel(data.level || "platform");
-
-      // ─── Map response based on level ──────────────────────────────────────────
       if (data.level === "platform") {
         const d = data as PlatformDashboardResponse;
         setAdminStats({
           totalClients: d.summary.clients.total || 0,
           activeClients: d.summary.clients.active || 0,
           activeSubscriptions: d.summary.subscriptions.active || 0,
-          totalServices: 0, // Not provided in this endpoint
+          totalServices: 0,
           totalUsers: d.summary.users.total || 0,
           totalDepartments: d.summary.departments.total || 0,
         });
@@ -815,6 +962,8 @@ export default function DashboardPage() {
           },
         });
       }
+
+      await fetchAssetLocations();
     } catch (error: any) {
       console.error("Error fetching dashboard data:", error);
       toast.error(
@@ -823,7 +972,19 @@ export default function DashboardPage() {
     } finally {
       setDashboardLoading(false);
     }
-  }, [router]);
+  }, [router, fetchAssetLocations, selectedClientId]);
+
+  useEffect(() => {
+    if (userRole === "ADMIN") {
+      fetchClients();
+    }
+  }, [userRole, fetchClients]);
+
+  useEffect(() => {
+    if (userRole === "ADMIN") {
+      fetchDashboardData();
+    }
+  }, [selectedClientId, userRole, fetchDashboardData]);
 
   useEffect(() => {
     setMounted(true);
@@ -847,7 +1008,26 @@ export default function DashboardPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // ─── Build stats array based on role and real data ───────────────────────────
+  const handleAssetClick = useCallback(
+    (asset: AssetLocation) => {
+      router.push(`/assets/${asset.asset_id}`);
+    },
+    [router],
+  );
+
+  const filteredAssets = useMemo(() => {
+    if (mapFilter === "all") return assetLocations;
+    const statusMap: Record<string, string> = {
+      transit: "TRANSIT",
+      idle: "AVAILABLE",
+      maintenance: "MAINTENANCE",
+    };
+    const filterStatus = statusMap[mapFilter];
+    return assetLocations.filter(
+      (asset) => asset.status?.toUpperCase() === filterStatus,
+    );
+  }, [assetLocations, mapFilter]);
+
   const STATS = useMemo(() => {
     if (userRole === "ADMIN") {
       return [
@@ -939,7 +1119,6 @@ export default function DashboardPage() {
       ];
     }
 
-    // Client Admin or User Stats
     const stats = [
       {
         label: "Departments",
@@ -991,7 +1170,6 @@ export default function DashboardPage() {
       },
     ];
 
-    // Add licence info for Client Admin
     if (userRole === "CLIENT_ADMIN") {
       stats.splice(2, 0, {
         label: "Licences Used",
@@ -1112,7 +1290,7 @@ export default function DashboardPage() {
         .fade-in  { animation:fadeIn 0.25s ease both; }
         .slide-dn { animation:slideDown 0.2s cubic-bezier(0.4,0,0.2,1) both; }
 
-        .stat-card { cursor:default; } /* <--- CHANGE: Cursor fixed to default, not pointer */
+        .stat-card { cursor:default; }
         .stat-card:hover .si { transform:scale(1.12) rotate(-5deg); }
         .si { transition:transform 0.2s; display:flex;align-items:center;justify-content:center; }
 
@@ -1374,7 +1552,10 @@ export default function DashboardPage() {
               }}
             >
               {STATS.slice(0, 3).map((s) => (
-                <div key={s.label} style={{ flex: 1, minWidth: 80, textAlign: "center" }}>
+                <div
+                  key={s.label}
+                  style={{ flex: 1, minWidth: 80, textAlign: "center" }}
+                >
                   <div
                     style={{
                       fontSize: 10,
@@ -1468,13 +1649,8 @@ export default function DashboardPage() {
             <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
               Welcome back,{" "}
               <span style={{ color: "#c0152a", fontWeight: 600 }}>
-                {userEmail}
+                {userRole === "ADMIN" ? "Admin" : userEmail || "User"}
               </span>
-              {dashboardLevel && (
-                <span style={{ marginLeft: 8, fontSize: 10, background: "#f1f5f9", padding: "2px 8px", borderRadius: 4 }}>
-                  {dashboardLevel}
-                </span>
-              )}
             </p>
           </div>
 
@@ -1627,6 +1803,43 @@ export default function DashboardPage() {
               flexShrink: 0,
             }}
           >
+            {/* ─── Client Filter for Platform Admin ─── */}
+            {userRole === "ADMIN" && (
+              <select
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #e2e8f0",
+                  background: "white",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "#475569",
+                  cursor: "pointer",
+                  outline: "none",
+                  minWidth: 160,
+                  transition: "all 0.2s",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "#c0152a";
+                  e.currentTarget.style.boxShadow =
+                    "0 0 0 3px rgba(192,21,42,0.1)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "#e2e8f0";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                <option value="">All Clients</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name} ({client.client_code})
+                  </option>
+                ))}
+              </select>
+            )}
+
             <div ref={notifRef} style={{ position: "relative" }}>
               <button
                 onClick={() => {
@@ -1820,13 +2033,17 @@ export default function DashboardPage() {
               className="export-btn"
               onClick={() => toast.success("Report generation started")}
             >
-              <Icon name="download" size={15} color="white" /> <span>Export Report</span>
+              <Icon name="download" size={15} color="white" />{" "}
+              <span>Export Report</span>
             </button>
           </div>
         </div>
 
         {/* Body */}
-        <div className="body-padding" style={{ padding: "22px 28px", maxWidth: 1440 }}>
+        <div
+          className="body-padding"
+          style={{ padding: "22px 28px", maxWidth: 1440 }}
+        >
           {/* KPI row - Responsive Grid */}
           <div
             className="kpi-grid"
@@ -1845,7 +2062,6 @@ export default function DashboardPage() {
                   padding: "15px 13px",
                   animationDelay: `${80 + i * 50}ms`,
                 }}
-                /* ❌ NAVIGATION REMOVED FROM HERE ❌ */
               >
                 <div
                   style={{
@@ -1967,7 +2183,38 @@ export default function DashboardPage() {
                       margin: "2px 0 0",
                     }}
                   >
-                    OpenStreetMap · Delhi NCR
+                    {filteredAssets.length} assets located •{" "}
+                    {assetLocations.length} total
+                    {userRole === "ADMIN" && (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          color: "#c0152a",
+                          fontWeight: 600,
+                        }}
+                      >
+                        •{" "}
+                        {selectedClientId
+                          ? clients.find((c) => c.id === selectedClientId)
+                              ?.name || "Selected Client"
+                          : "All Clients"}
+                      </span>
+                    )}
+                    {userRole !== "ADMIN" &&
+                      selectedClientId &&
+                      clients.length > 0 && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            color: "#c0152a",
+                            fontWeight: 600,
+                          }}
+                        >
+                          •{" "}
+                          {clients.find((c) => c.id === selectedClientId)
+                            ?.name || "Selected Client"}
+                        </span>
+                      )}
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -1990,9 +2237,32 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-              <ErrorBoundary>
-                <AssetMap filter={mapFilter} />
-              </ErrorBoundary>
+              {mapLoading ? (
+                <div
+                  style={{
+                    height: 270,
+                    background: "#f1f5f9",
+                    borderRadius: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div style={{ color: "#94a3b8", fontSize: 13 }}>
+                    Loading map…
+                  </div>
+                </div>
+              ) : (
+                <ErrorBoundary>
+                  <AssetMap
+                    assets={filteredAssets}
+                    onAssetClick={handleAssetClick}
+                    mapMode="light"
+                    viewType="street"
+                    height={500}
+                  />
+                </ErrorBoundary>
+              )}
             </div>
 
             <div
@@ -2434,7 +2704,7 @@ export default function DashboardPage() {
                     icon: "plus",
                     bg: "#fff1f2",
                     col: "#c0152a",
-                    path: "/assets/new",
+                    path: "/assets",
                   },
                   {
                     label: "Schedule Audit",
@@ -2455,7 +2725,7 @@ export default function DashboardPage() {
                     icon: "wrench",
                     bg: "#fffbeb",
                     col: "#f59e0b",
-                    path: "/maintenance/new",
+                    path: "/maintenance",
                   },
                   {
                     label: "View Reports",

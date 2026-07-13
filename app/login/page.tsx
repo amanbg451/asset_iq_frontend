@@ -76,7 +76,7 @@ function DashboardIllustration() {
             <span className="w-3 h-3 rounded-full bg-yellow-400 opacity-80" />
             <span className="w-3 h-3 rounded-full bg-green-400 opacity-80" />
             <span className="ml-3 text-xs text-white/50 font-mono">
-              AssetIQ - Dashboard
+              AssetAi - Dashboard
             </span>
           </div>
 
@@ -384,7 +384,6 @@ export default function LoginPage() {
     setError(false);
 
     try {
-      // Use the unified login endpoint
       const response = await api.post("/auth/login", {
         email,
         password,
@@ -392,22 +391,18 @@ export default function LoginPage() {
 
       const { access_token, user } = response.data;
 
-      // Store token
       localStorage.setItem("access_token", access_token);
 
-      // Store user info if needed
       if (user) {
         localStorage.setItem("user", JSON.stringify(user));
       }
 
-      // Remember email if checked
       if (rememberMe) {
         localStorage.setItem("remembered_email", email);
       } else {
         localStorage.removeItem("remembered_email");
       }
 
-      // Decode token to get role
       const payload = decodeToken(access_token);
       const role = payload?.role || user?.role || "USER";
 
@@ -416,7 +411,6 @@ export default function LoginPage() {
     } catch (error: any) {
       console.error("Login error:", error);
 
-      // Handle specific error cases
       if (error.response?.status === 401) {
         setError(true);
         toast.error("Invalid email or password");
@@ -434,7 +428,6 @@ export default function LoginPage() {
           toast.error(message || "Access forbidden");
         }
       } else if (error.response?.status === 422) {
-        // Validation error
         const detail = error.response?.data?.detail;
         if (Array.isArray(detail)) {
           const messages = detail.map((err: any) => err.msg).join(", ");
@@ -454,7 +447,6 @@ export default function LoginPage() {
 
   return (
     <>
-      {/* ── Global keyframes injected via style tag ── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -593,7 +585,7 @@ export default function LoginPage() {
           .right-panel { width: 100% !important; }
         }
       `}</style>
-
+  
       {/* ── Root ── */}
       <div
         className="relative flex min-h-screen overflow-hidden"
@@ -689,7 +681,7 @@ export default function LoginPage() {
               </svg>
             </div>
             <span className="text-white font-bold text-lg tracking-tight">
-              AssetIQ
+              AssetAi
             </span>
           </div>
 
@@ -761,7 +753,7 @@ export default function LoginPage() {
                       WebkitTextFillColor: "transparent",
                     }}
                   >
-                    AssetIQ
+                    AssetAi
                   </span>
                 </div>
 

@@ -776,7 +776,7 @@ export default function AssetCategoriesPage() {
           <div className="search-filters fade-in-up">
             <div className="relative w-full sm:max-w-md">
               <svg
-                className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400"
+                className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-900 pointer-events-none"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
