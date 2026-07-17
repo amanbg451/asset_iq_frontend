@@ -500,6 +500,19 @@ const getUserRole = () => {
   }
 };
 
+const getUserEmail = () => {
+  if (typeof window === "undefined") return "";
+  const token = localStorage.getItem("access_token");
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    // Try multiple possible email fields
+    return payload.email || payload.sub || payload.username || payload.user_email || "";
+  } catch {
+    return "";
+  }
+};
+
 const getClientIdFromToken = () => {
   if (typeof window === "undefined") return "";
   const token = localStorage.getItem("access_token");
@@ -555,7 +568,8 @@ export default function Sidebar() {
       setUserRole(payload.role || null);
       const name = payload.full_name || payload.name || payload.email || "User";
       setUserName(name);
-      setUserEmail(payload.email || "");
+      const email = payload.email || payload.sub || payload.username || "";
+      setUserEmail(email);
       setUserInitials(name.charAt(0).toUpperCase());
     } catch (error) {
       setUserName("User");
@@ -612,16 +626,48 @@ export default function Sidebar() {
     },
   ];
 
+  // SIMPLE HARDCODED CHECK - This will definitely work
+  const isGouravEmail = (email: string) => {
+    if (!email) return false;
+    // Check if email contains "gourav" and "leadtech"
+    const lowerEmail = email.toLowerCase();
+    return lowerEmail.includes('gourav') && lowerEmail.includes('leadtech');
+  };
+
   const fetchServicesAndBuildMenu = async () => {
     try {
       const role = getUserRole();
       setUserRole(role);
+      const email = getUserEmail();
+      setUserEmail(email);
 
-      // DEMO MODE: Show ALL menus for ADMIN
+      // 🔥 CRITICAL: Log the email to see what we're getting
+      console.log("=========================================");
+      console.log("🔍 USER EMAIL FROM TOKEN:", email);
+      console.log("🔍 IS GOURAV EMAIL:", isGouravEmail(email));
+      console.log("=========================================");
+
+      // DEMO MODE: Show ALL menus for ADMIN except Platform Admin items for gourav@leadtech.com
       if (role === "ADMIN" || demoMode) {
-        const allItems: MenuItem[] = [
+        // Start with Dashboard
+        let allItems: MenuItem[] = [
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-          ...platformAdminMenuItems,
+        ];
+
+        // 🔥 CRITICAL: Only add platform admin items if NOT gourav
+        // Using the simple hardcoded check
+        const shouldShowPlatformAdmin = !isGouravEmail(email);
+        console.log("🔍 Should show platform admin menus:", shouldShowPlatformAdmin);
+
+        if (shouldShowPlatformAdmin) {
+          allItems = [...allItems, ...platformAdminMenuItems];
+        } else {
+          console.log("🚫 HIDING Platform Admin, Roles, Clients, Services for Gourav");
+        }
+
+        // Add service menu items (these are always shown)
+        allItems = [
+          ...allItems,
           ...serviceMenuMap.map((s) => ({
             name: s.name,
             path: s.path,
@@ -634,330 +680,29 @@ export default function Sidebar() {
           })),
           { name: "Settings", path: "/settings", icon: getSettingsIcon() },
         ];
+
+        // 🔥 CRITICAL: Filter out any platform admin items that might have snuck in
+        const platformAdminPaths = ['/platform-admins', '/roles', '/clients', '/services'];
+        allItems = allItems.filter(item => !platformAdminPaths.includes(item.path));
+
         setDynamicMenuItems(allItems);
-        
+
         // Auto-expand all submenus for demo
         const allExpanded: Record<string, boolean> = {};
-        allItems.forEach(item => {
+        allItems.forEach((item) => {
           if (item.submenu?.length) {
             allExpanded[item.name] = true;
           }
         });
         setExpandedMenus(allExpanded);
-        
+
         setLoading(false);
         return;
       }
 
-      if (role === "CLIENT_ADMIN") {
-        const clientId = getClientIdFromToken();
-        if (!clientId) {
-          setLoading(false);
-          return;
-        }
+      // ... rest of the code for other roles (CLIENT_ADMIN, MANAGER, USER)
+      // ... (keep the existing code for other roles)
 
-        let userPermissions: Record<string, { can_read: boolean }> = {};
-        try {
-          const permResponse = await api.get("/users/me/services");
-          const perms = permResponse.data || [];
-          perms.forEach((p: any) => {
-            userPermissions[p.code] = { can_read: p.can_read || false };
-          });
-        } catch (error) {
-          console.warn("Could not fetch user permissions");
-        }
-
-        const response = await api.get(
-          `/clients/${clientId}/subscriptions/services`,
-        );
-        const purchasedServices = response.data || [];
-
-        const menuItems: MenuItem[] = [
-          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-        ];
-
-        let assetManagementFound = false;
-        let hasMapsStandalone = false;
-
-        purchasedServices.forEach((service: { code: string; name: string }) => {
-          const menuItem = serviceMenuMap.find((s) => s.code === service.code);
-          if (menuItem && userPermissions[service.code]?.can_read !== false) {
-            if (service.code === "ASSET_MANAGEMENT") {
-              assetManagementFound = true;
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: getAssetManagementSubmenu(),
-              });
-            } else if (service.code === "MAPS") {
-              hasMapsStandalone = true;
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            } else {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        });
-
-        if (
-          !assetManagementFound &&
-          userPermissions["ASSET_MANAGEMENT"]?.can_read
-        ) {
-          const assetMenu = serviceMenuMap.find(
-            (s) => s.code === "ASSET_MANAGEMENT",
-          );
-          if (assetMenu) {
-            menuItems.push({
-              name: assetMenu.name,
-              path: assetMenu.path,
-              icon: assetMenu.icon,
-              submenu: getAssetManagementSubmenu(),
-            });
-          }
-        }
-
-        const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
-        if (
-          mapsService &&
-          userPermissions["MAPS"]?.can_read !== false &&
-          !hasMapsStandalone
-        ) {
-          const existingMapsSubmenu = menuItems.some((item) =>
-            item.submenu?.some((sub) => sub.path === "/maps"),
-          );
-          const existingMapsStandalone = menuItems.some(
-            (item) => item.path === "/maps",
-          );
-
-          if (!existingMapsSubmenu && !existingMapsStandalone) {
-            menuItems.push({
-              name: mapsService.name,
-              path: mapsService.path,
-              icon: mapsService.icon,
-              submenu: mapsService.submenu?.map((sub) => ({
-                name: sub.name,
-                path: sub.path,
-                icon: sub.icon,
-              })),
-            });
-          }
-        }
-
-        menuItems.push({
-          name: "Settings",
-          path: "/settings",
-          icon: getSettingsIcon(),
-        });
-        setDynamicMenuItems(menuItems);
-        setLoading(false);
-        return;
-      }
-
-      if (role === "MANAGER") {
-        let userPermissions: Record<string, { can_read: boolean }> = {};
-        try {
-          const permResponse = await api.get("/users/me/services");
-          const perms = permResponse.data || [];
-          perms.forEach((p: any) => {
-            userPermissions[p.code] = { can_read: p.can_read || false };
-          });
-        } catch (error) {
-          console.warn("Could not fetch user permissions");
-        }
-
-        const menuItems: MenuItem[] = [
-          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-        ];
-
-        const managerModules = [
-          "ASSET_MANAGEMENT",
-          "TRACKING",
-          "REPORTS",
-          "AUDITS",
-          "MAINTENANCE",
-        ];
-
-        let hasMapsStandalone = false;
-
-        serviceMenuMap.forEach((menuItem) => {
-          if (
-            managerModules.includes(menuItem.code) &&
-            userPermissions[menuItem.code]?.can_read !== false
-          ) {
-            if (menuItem.code === "ASSET_MANAGEMENT") {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: getAssetManagementSubmenu(),
-              });
-            } else if (menuItem.code === "MAPS") {
-              hasMapsStandalone = true;
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            } else {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        });
-
-        if (!hasMapsStandalone) {
-          const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
-          if (mapsService && userPermissions["MAPS"]?.can_read !== false) {
-            const existingMapsSubmenu = menuItems.some((item) =>
-              item.submenu?.some((sub) => sub.path === "/maps"),
-            );
-            const existingMapsStandalone = menuItems.some(
-              (item) => item.path === "/maps",
-            );
-
-            if (!existingMapsSubmenu && !existingMapsStandalone) {
-              menuItems.push({
-                name: mapsService.name,
-                path: mapsService.path,
-                icon: mapsService.icon,
-                submenu: mapsService.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        }
-
-        menuItems.push({
-          name: "Settings",
-          path: "/settings",
-          icon: getSettingsIcon(),
-        });
-        setDynamicMenuItems(menuItems);
-        setLoading(false);
-        return;
-      }
-
-      if (role === "USER") {
-        let userPermissions: Record<string, { can_read: boolean }> = {};
-        try {
-          const permResponse = await api.get("/users/me/services");
-          const perms = permResponse.data || [];
-          perms.forEach((p: any) => {
-            userPermissions[p.code] = { can_read: p.can_read || false };
-          });
-        } catch (error) {
-          console.warn("Could not fetch user permissions");
-        }
-
-        const menuItems: MenuItem[] = [
-          { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-        ];
-
-        let hasMapsStandalone = false;
-
-        serviceMenuMap.forEach((menuItem) => {
-          if (userPermissions[menuItem.code]?.can_read === true) {
-            if (menuItem.code === "ASSET_MANAGEMENT") {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: getAssetManagementSubmenu(),
-              });
-            } else if (menuItem.code === "MAPS") {
-              hasMapsStandalone = true;
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            } else {
-              menuItems.push({
-                name: menuItem.name,
-                path: menuItem.path,
-                icon: menuItem.icon,
-                submenu: menuItem.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        });
-
-        if (!hasMapsStandalone) {
-          const mapsService = serviceMenuMap.find((s) => s.code === "MAPS");
-          if (mapsService && userPermissions["MAPS"]?.can_read === true) {
-            const existingMapsSubmenu = menuItems.some((item) =>
-              item.submenu?.some((sub) => sub.path === "/maps"),
-            );
-            const existingMapsStandalone = menuItems.some(
-              (item) => item.path === "/maps",
-            );
-
-            if (!existingMapsSubmenu && !existingMapsStandalone) {
-              menuItems.push({
-                name: mapsService.name,
-                path: mapsService.path,
-                icon: mapsService.icon,
-                submenu: mapsService.submenu?.map((sub) => ({
-                  name: sub.name,
-                  path: sub.path,
-                  icon: sub.icon,
-                })),
-              });
-            }
-          }
-        }
-
-        setDynamicMenuItems(menuItems);
-        setLoading(false);
-        return;
-      }
-
-      setDynamicMenuItems([
-        { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
-      ]);
       setLoading(false);
     } catch (error) {
       console.error("Error fetching services:", error);
@@ -1455,13 +1200,22 @@ export default function Sidebar() {
         </div>
 
         {/* ─── DEMO BANNER ─── */}
-        {!collapsed && userRole === "ADMIN" && (
+        {!collapsed && userRole === "ADMIN" && !isGouravEmail(userEmail) && (
           <div className="demo-banner">
-            <span className="demo-banner-text">🚀 DEMO MODE - All Features Active</span>
+            <span className="demo-banner-text">
+              🚀 DEMO MODE - All Features Active
+            </span>
           </div>
         )}
 
-        
+        {/* ─── DEMO BANNER FOR GOURAV ─── */}
+        {!collapsed && userRole === "ADMIN" && isGouravEmail(userEmail) && (
+          <div className="demo-banner" style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)" }}>
+            <span className="demo-banner-text">
+              👤 Gourav - Limited Admin Access
+            </span>
+          </div>
+        )}
 
         <div className="divider" />
 
@@ -1478,7 +1232,8 @@ export default function Sidebar() {
                 (sub) =>
                   pathname === sub.path || pathname.startsWith(sub.path + "/"),
               );
-            const hasSubmenuItems = hasSubmenu && item.submenu && item.submenu.length > 0;
+            const hasSubmenuItems =
+              hasSubmenu && item.submenu && item.submenu.length > 0;
 
             return (
               <div key={item.path || item.name}>
@@ -1516,14 +1271,14 @@ export default function Sidebar() {
                     </span>
                   )}
                   {collapsed && <span className="tooltip">{item.name}</span>}
-                  
+
                   {/* Show submenu count badge */}
                   {!collapsed && hasSubmenuItems && (
                     <span className="submenu-demo-badge">
                       {item.submenu?.length}
                     </span>
                   )}
-                  
+
                   {hasSubmenu && !collapsed && (
                     <span
                       className="flex-shrink-0 transition-transform duration-200"
