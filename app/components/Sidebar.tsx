@@ -534,6 +534,7 @@ export default function Sidebar() {
   const [userInitials, setUserInitials] = useState<string>("U");
   const [dynamicMenuItems, setDynamicMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [demoMode] = useState(true); // Set to false for production
 
   const toggleSubmenu = (menuName: string) => {
     setExpandedMenus((prev) => ({ ...prev, [menuName]: !prev[menuName] }));
@@ -616,7 +617,8 @@ export default function Sidebar() {
       const role = getUserRole();
       setUserRole(role);
 
-      if (role === "ADMIN") {
+      // DEMO MODE: Show ALL menus for ADMIN
+      if (role === "ADMIN" || demoMode) {
         const allItems: MenuItem[] = [
           { name: "Dashboard", path: "/dashboard", icon: getDashboardIcon() },
           ...platformAdminMenuItems,
@@ -633,6 +635,16 @@ export default function Sidebar() {
           { name: "Settings", path: "/settings", icon: getSettingsIcon() },
         ];
         setDynamicMenuItems(allItems);
+        
+        // Auto-expand all submenus for demo
+        const allExpanded: Record<string, boolean> = {};
+        allItems.forEach(item => {
+          if (item.submenu?.length) {
+            allExpanded[item.name] = true;
+          }
+        });
+        setExpandedMenus(allExpanded);
+        
         setLoading(false);
         return;
       }
@@ -995,6 +1007,14 @@ export default function Sidebar() {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.5; transform: scale(1.2); }
         }
+        @keyframes demoPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        @keyframes badgePulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
         .sidebar-item-enter { animation: slideIn 0.2s ease forwards; }
         .submenu-enter { animation: submenuSlide 0.25s ease forwards; }
 
@@ -1133,7 +1153,7 @@ export default function Sidebar() {
           overflow-x: hidden;
           padding: 8px 12px;
           scrollbar-width: thin;
-          scrollbar-color: #d91515 #f3f4f6;
+          scrollbar-color: #dc2626 #f3f4f6;
         }
         
         .nav-scroll::-webkit-scrollbar {
@@ -1153,13 +1173,64 @@ export default function Sidebar() {
         }
         
         .nav-scroll::-webkit-scrollbar-thumb {
-          background: #22c55e;
+          background: #dc2626;
           border-radius: 10px;
           min-height: 40px;
         }
         
         .nav-scroll::-webkit-scrollbar-thumb:hover {
-          background: #16a34a;
+          background: #b91c1c;
+        }
+
+        /* ─── DEMO STYLES ─── */
+        .demo-banner {
+          background: linear-gradient(135deg, #dc2626, #b91c1c);
+          animation: demoGlow 2s ease-in-out infinite;
+          border-radius: 8px;
+          padding: 6px 12px;
+          margin: 0 12px 8px 12px;
+          text-align: center;
+          flex-shrink: 0;
+        }
+        @keyframes demoGlow {
+          0%, 100% { box-shadow: 0 2px 12px rgba(220,38,38,0.3); }
+          50% { box-shadow: 0 2px 24px rgba(220,38,38,0.6); }
+        }
+        .demo-banner-text {
+          color: white;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+        }
+        .menu-counter {
+          background: rgba(220,38,38,0.05);
+          border: 1px solid rgba(220,38,38,0.1);
+          border-radius: 8px;
+          padding: 4px 12px;
+          margin: 0 12px 8px 12px;
+          text-align: center;
+          flex-shrink: 0;
+        }
+        .menu-counter-text {
+          font-size: 11px;
+          font-weight: 600;
+          color: #6b7280;
+        }
+        .menu-counter-highlight {
+          color: #dc2626;
+          font-weight: 700;
+        }
+        .submenu-demo-badge {
+          background: #22c55e;
+          color: white;
+          font-size: 7px;
+          font-weight: 700;
+          padding: 1px 6px;
+          border-radius: 8px;
+          margin-left: auto;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
         }
 
         .powered-by {
@@ -1383,6 +1454,15 @@ export default function Sidebar() {
           </button>
         </div>
 
+        {/* ─── DEMO BANNER ─── */}
+        {!collapsed && userRole === "ADMIN" && (
+          <div className="demo-banner">
+            <span className="demo-banner-text">🚀 DEMO MODE - All Features Active</span>
+          </div>
+        )}
+
+        
+
         <div className="divider" />
 
         {/* Nav Items with Scroll */}
@@ -1398,6 +1478,7 @@ export default function Sidebar() {
                 (sub) =>
                   pathname === sub.path || pathname.startsWith(sub.path + "/"),
               );
+            const hasSubmenuItems = hasSubmenu && item.submenu && item.submenu.length > 0;
 
             return (
               <div key={item.path || item.name}>
@@ -1435,6 +1516,14 @@ export default function Sidebar() {
                     </span>
                   )}
                   {collapsed && <span className="tooltip">{item.name}</span>}
+                  
+                  {/* Show submenu count badge */}
+                  {!collapsed && hasSubmenuItems && (
+                    <span className="submenu-demo-badge">
+                      {item.submenu?.length}
+                    </span>
+                  )}
+                  
                   {hasSubmenu && !collapsed && (
                     <span
                       className="flex-shrink-0 transition-transform duration-200"
