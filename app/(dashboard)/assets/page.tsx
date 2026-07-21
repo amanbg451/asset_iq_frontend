@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { z } from "zod";
 import api, { formatValidationError } from "@/app/lib/api";
+import * as XLSX from "xlsx";
 
 interface Category {
   id: string;
@@ -62,6 +63,38 @@ interface Asset {
   latest_image_url: string | null;
   qr_code_url: string | null;
 }
+
+interface BulkAssetRow {
+  rowNumber: number;
+  category_id: string;
+  type_id: string;
+  name: string;
+  department_id: string;
+  location_id: string;
+  assigned_to_user_id: string;
+  description: string;
+  serial_number: string;
+  model: string;
+  manufacturer: string;
+  purchase_date: string;
+  purchase_value: string;
+  errors: string[];
+}
+
+const BULK_TEMPLATE_HEADERS = [
+  "category_id",
+  "type_id",
+  "name",
+  "department_id",
+  "location_id",
+  "assigned_to_user_id",
+  "description",
+  "serial_number",
+  "model",
+  "manufacturer",
+  "purchase_date",
+  "purchase_value",
+];
 
 // Updated Zod schema - removed image_url
 const assetSchema = z.object({
@@ -130,9 +163,18 @@ export default function AssetsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // Bulk upload state
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkRows, setBulkRows] = useState<BulkAssetRow[]>([]);
+  const [bulkParsing, setBulkParsing] = useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkDragging, setBulkDragging] = useState(false);
+  const [bulkClientId, setBulkClientId] = useState("");
 
   // New image file states - simple file selection
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -385,6 +427,258 @@ export default function AssetsPage() {
     if (!locationId) return "—";
     const loc = locations.find((l) => l.id === locationId);
     return loc ? loc.full_path : "Unknown";
+  };
+
+  // ===== BULK UPLOAD HELPERS =====
+
+  // Best-effort, non-verifying decode of the JWT payload just to read
+  // convenience claims like client_id. Never used for auth decisions.
+  const decodeJwtClaim = (claimNames: string[]): string => {
+    try {
+      const token = localStorage.getItem("access_token");
+      if (!token) return "";
+      const parts = token.split(".");
+      if (parts.length < 2) return "";
+      const payloadJson = atob(
+        parts[1].replace(/-/g, "+").replace(/_/g, "/"),
+      );
+      const payload = JSON.parse(payloadJson);
+      for (const name of claimNames) {
+        if (payload[name]) return String(payload[name]);
+      }
+      return "";
+    } catch {
+      return "";
+    }
+  };
+
+  const openBulkModal = () => {
+    // Pre-fill client_id if this token carries it (helps ADMIN-role users;
+    // harmless for CLIENT_ADMIN since the backend ignores it in that case).
+    const detected = decodeJwtClaim(["client_id", "clientId", "tenant_id"]);
+    setBulkClientId(detected);
+    setShowBulkModal(true);
+  };
+
+  const validateBulkRow = (
+    row: Omit<BulkAssetRow, "errors" | "rowNumber">,
+  ): string[] => {
+    const errors: string[] = [];
+
+    if (!row.category_id) {
+      errors.push("category_id is required");
+    } else if (!categories.some((c) => c.id === row.category_id)) {
+      errors.push("category_id not found");
+    }
+
+    if (!row.type_id) {
+      errors.push("type_id is required");
+    } else {
+      const type = types.find((t) => t.id === row.type_id);
+      if (!type) {
+        errors.push("type_id not found");
+      } else if (row.category_id && type.category_id !== row.category_id) {
+        errors.push("type_id does not belong to category_id");
+      }
+    }
+
+    if (!row.name || row.name.trim().length < 2) {
+      errors.push("name is required (min 2 chars)");
+    } else if (row.name.trim().length > 200) {
+      errors.push("name too long (max 200 chars)");
+    }
+
+    if (row.department_id && !departments.some((d) => d.id === row.department_id)) {
+      errors.push("department_id not found");
+    }
+
+    if (row.location_id && !locations.some((l) => l.id === row.location_id)) {
+      errors.push("location_id not found");
+    }
+
+    if (
+      row.assigned_to_user_id &&
+      !users.some((u) => u.id === row.assigned_to_user_id)
+    ) {
+      errors.push("assigned_to_user_id not found");
+    }
+
+    if (row.purchase_date && !/^\d{4}-\d{2}-\d{2}$/.test(row.purchase_date)) {
+      errors.push("purchase_date must be YYYY-MM-DD");
+    }
+
+    if (row.purchase_value) {
+      const num = Number(row.purchase_value);
+      if (Number.isNaN(num) || num < 0) {
+        errors.push("purchase_value must be a non-negative number");
+      }
+    }
+
+    return errors;
+  };
+
+  const parseBulkFile = (file: File) => {
+    setBulkParsing(true);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const firstSheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[firstSheetName];
+        const jsonRows: any[] = XLSX.utils.sheet_to_json(sheet, {
+          defval: "",
+          raw: false,
+        });
+
+        if (jsonRows.length === 0) {
+          toast.error("The file has no rows to import");
+          setBulkRows([]);
+          setBulkParsing(false);
+          return;
+        }
+
+        const parsedRows: BulkAssetRow[] = jsonRows.map((raw, idx) => {
+          const base = {
+            category_id: String(raw.category_id || "").trim(),
+            type_id: String(raw.type_id || "").trim(),
+            name: String(raw.name || "").trim(),
+            department_id: String(raw.department_id || "").trim(),
+            location_id: String(raw.location_id || "").trim(),
+            assigned_to_user_id: String(raw.assigned_to_user_id || "").trim(),
+            description: String(raw.description || "").trim(),
+            serial_number: String(raw.serial_number || "").trim(),
+            model: String(raw.model || "").trim(),
+            manufacturer: String(raw.manufacturer || "").trim(),
+            purchase_date: String(raw.purchase_date || "").trim(),
+            purchase_value: String(raw.purchase_value || "").trim(),
+          };
+          return {
+            rowNumber: idx + 2, // account for header row
+            ...base,
+            errors: validateBulkRow(base),
+          };
+        });
+
+        setBulkRows(parsedRows);
+      } catch (error) {
+        console.error("Error parsing bulk file:", error);
+        toast.error(
+          "Could not read that file. Please upload a valid .xlsx or .xls file",
+        );
+        setBulkRows([]);
+      } finally {
+        setBulkParsing(false);
+      }
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read the file");
+      setBulkParsing(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleBulkFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validExt = /\.(xlsx|xls)$/i.test(file.name);
+    if (!validExt) {
+      toast.error("Please upload a .xlsx or .xls file");
+      e.target.value = "";
+      return;
+    }
+
+    setBulkFile(file);
+    parseBulkFile(file);
+  };
+
+  const removeBulkFile = () => {
+    setBulkFile(null);
+    setBulkRows([]);
+  };
+
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkFile(null);
+    setBulkRows([]);
+    setBulkParsing(false);
+    setBulkSubmitting(false);
+    setBulkClientId("");
+  };
+
+  const downloadBulkTemplate = () => {
+    const sampleRow = {
+      category_id: "CATEGORY_UUID",
+      type_id: "TYPE_UUID",
+      name: "Dell Laptop 1",
+      department_id: "",
+      location_id: "",
+      assigned_to_user_id: "",
+      description: "",
+      serial_number: "DELL-001",
+      model: "Latitude 5420",
+      manufacturer: "Dell",
+      purchase_date: "2026-07-20",
+      purchase_value: "65000",
+    };
+    const worksheet = XLSX.utils.json_to_sheet([sampleRow], {
+      header: BULK_TEMPLATE_HEADERS,
+    });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Assets");
+    XLSX.writeFile(workbook, "asset_bulk_upload_template.xlsx");
+  };
+
+  const bulkValidCount = bulkRows.filter((r) => r.errors.length === 0).length;
+  const bulkErrorCount = bulkRows.length - bulkValidCount;
+  const bulkHasBlockingErrors = bulkRows.length === 0 || bulkErrorCount > 0;
+
+  const handleBulkCreate = async () => {
+    if (bulkRows.length === 0 || bulkErrorCount > 0) return;
+
+    setBulkSubmitting(true);
+    try {
+      const assets = bulkRows.map((row) => {
+        const asset: any = {
+          category_id: row.category_id,
+          type_id: row.type_id,
+          name: row.name.trim(),
+          custom_fields: [],
+        };
+        if (row.department_id) asset.department_id = row.department_id;
+        if (row.location_id) asset.location_id = row.location_id;
+        if (row.assigned_to_user_id)
+          asset.assigned_to_user_id = row.assigned_to_user_id;
+        if (row.description) asset.description = row.description;
+        if (row.serial_number) asset.serial_number = row.serial_number;
+        if (row.model) asset.model = row.model;
+        if (row.manufacturer) asset.manufacturer = row.manufacturer;
+        if (row.purchase_date) asset.purchase_date = row.purchase_date;
+        if (row.purchase_value)
+          asset.purchase_value = Number(row.purchase_value);
+        return asset;
+      });
+
+      const payload: any = { assets };
+      if (bulkClientId && bulkClientId.trim() !== "") {
+        payload.client_id = bulkClientId.trim();
+      }
+
+      await api.post("/assets/bulk", payload);
+      toast.success(
+        `${assets.length} asset${assets.length === 1 ? "" : "s"} created successfully`,
+      );
+      closeBulkModal();
+      fetchAssets();
+    } catch (error: any) {
+      console.error("Error bulk creating assets:", error);
+      toast.error(
+        formatValidationError(error) || "Failed to bulk create assets",
+      );
+    } finally {
+      setBulkSubmitting(false);
+    }
   };
 
   // UPDATED: Create asset with image in single request
@@ -808,6 +1102,7 @@ export default function AssetsPage() {
         }
 
         .delete-modal { max-width: 440px; }
+        .bulk-modal { max-width: 980px; }
 
         .stat-card {
           background: white;
@@ -1244,6 +1539,79 @@ export default function AssetsPage() {
             gap: 16px;
           }
         }
+
+        .header-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          width: 100%;
+        }
+        @media (min-width: 640px) {
+          .header-actions {
+            flex-direction: row;
+            width: auto;
+          }
+        }
+
+        .bulk-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 12px;
+          min-width: 900px;
+        }
+        .bulk-table thead th {
+          text-align: left;
+          padding: 8px 10px;
+          font-weight: 600;
+          font-size: 10px;
+          color: #6b7280;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          border-bottom: 2px solid #f1f5f9;
+          background: #fafbfc;
+          white-space: nowrap;
+        }
+        .bulk-table tbody td {
+          padding: 8px 10px;
+          border-bottom: 1px solid #f1f5f9;
+          color: #1f2937;
+          font-size: 12px;
+          vertical-align: top;
+          white-space: nowrap;
+        }
+        .bulk-table tbody tr.row-error {
+          background: #fff7ed;
+        }
+        .bulk-table tbody tr.row-error:hover {
+          background: #ffedd5;
+        }
+        .bulk-table tbody tr.row-ok:hover {
+          background: #f0fdf4;
+        }
+        .bulk-status-icon {
+          font-size: 15px;
+        }
+        .bulk-error-text {
+          color: #dc2626;
+          font-size: 10px;
+          font-weight: 500;
+          white-space: normal;
+          max-width: 220px;
+        }
+        .bulk-summary-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          border-radius: 99px;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        @media (min-width: 640px) {
+          .bulk-summary-pill {
+            font-size: 12px;
+          }
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -1282,24 +1650,46 @@ export default function AssetsPage() {
               </div>
             </div>
 
-            <button
-              onClick={() => setShowModal(true)}
-              className="cursor-pointer group relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden w-full sm:w-auto justify-center"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="group-hover:rotate-90 transition-transform duration-300 sm:w-4.5 sm:h-4.5"
+            <div className="header-actions w-full md:w-auto">
+              <button
+                onClick={openBulkModal}
+                className="cursor-pointer group relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md hover:border-red-200 hover:text-red-600 transition-all duration-300 w-full sm:w-auto justify-center"
               >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              <span>Add Asset</span>
-            </button>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  className="sm:w-4.5 sm:h-4.5"
+                >
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                <span>Bulk Upload</span>
+              </button>
+
+              <button
+                onClick={() => setShowModal(true)}
+                className="cursor-pointer group relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 overflow-hidden w-full sm:w-auto justify-center"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="group-hover:rotate-90 transition-transform duration-300 sm:w-4.5 sm:h-4.5"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>Add Asset</span>
+              </button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -3085,6 +3475,266 @@ export default function AssetsPage() {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BULK UPLOAD MODAL */}
+      {showBulkModal && (
+        <div className="modal-overlay" onClick={closeBulkModal}>
+          <div
+            className="modal-content bulk-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+                  Bulk Upload Assets
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
+                  Upload an Excel file to create multiple assets at once
+                </p>
+              </div>
+              <button
+                onClick={closeBulkModal}
+                className="cursor-pointer text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100 flex-shrink-0"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  className="sm:w-4 sm:h-4"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3 sm:mb-4">
+              <p className="text-[10px] sm:text-xs text-gray-500 font-normal">
+                Required columns: <span className="font-semibold text-gray-700">category_id, type_id, name</span>.
+                Optional: department_id, location_id, assigned_to_user_id, description, serial_number, model, manufacturer, purchase_date (YYYY-MM-DD), purchase_value.
+              </p>
+              <button
+                type="button"
+                onClick={downloadBulkTemplate}
+                className="cursor-pointer flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-[10px] sm:text-xs font-semibold whitespace-nowrap"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                >
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Download Template
+              </button>
+            </div>
+
+            {/* Client ID - only needed for platform ADMIN accounts */}
+            <div className="mb-3 sm:mb-4">
+              <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">
+                Client ID{" "}
+                <span className="text-gray-400 font-normal">
+                  (only required for ADMIN / Platform Admin accounts)
+                </span>
+              </label>
+              <div className="input-icon-wrapper">
+                <span className="icon">🏢</span>
+                <input
+                  type="text"
+                  value={bulkClientId}
+                  onChange={(e) => setBulkClientId(e.target.value)}
+                  placeholder="Leave blank if you're a CLIENT_ADMIN or Manager"
+                  className="w-full px-3 sm:px-4 py-2 sm:py-2.5 pl-9 sm:pl-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400/50 transition-all input-fancy text-gray-800 placeholder-gray-400 text-xs sm:text-sm font-normal"
+                />
+              </div>
+              <p className="text-[10px] sm:text-xs text-gray-400 mt-1.5 font-normal">
+                CLIENT_ADMIN and Manager accounts don't need this — the backend reads your client from your login token automatically.
+              </p>
+            </div>
+
+            {/* File upload area */}
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleBulkFileSelect}
+              className="hidden"
+              id="bulk-upload"
+            />
+            <label
+              htmlFor="bulk-upload"
+              className={`file-upload-area cursor-pointer block ${bulkDragging ? "dragging" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setBulkDragging(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setBulkDragging(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setBulkDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  const input = document.getElementById(
+                    "bulk-upload",
+                  ) as HTMLInputElement;
+                  const dt = new DataTransfer();
+                  dt.items.add(file);
+                  input.files = dt.files;
+                  handleBulkFileSelect({ target: input } as any);
+                }
+              }}
+            >
+              {bulkFile ? (
+                <div className="flex items-center justify-center gap-2 sm:gap-3 py-1 sm:py-2 flex-wrap">
+                  <span className="text-green-500 text-lg sm:text-xl">📊</span>
+                  <span className="text-xs sm:text-sm text-gray-600 font-medium">
+                    {bulkFile.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeBulkFile();
+                      const input = document.getElementById(
+                        "bulk-upload",
+                      ) as HTMLInputElement;
+                      if (input) input.value = "";
+                    }}
+                    className="text-red-500 hover:text-red-700 text-xs font-medium"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="upload-icon">📊</div>
+                  <p className="upload-text">
+                    Click or drag to upload Excel file
+                  </p>
+                  <p className="upload-subtext">XLSX or XLS format</p>
+                </div>
+              )}
+            </label>
+
+            {/* Parsing indicator */}
+            {bulkParsing && (
+              <div className="flex justify-center items-center py-8">
+                <div className="w-8 h-8 border-3 border-gray-200 border-t-red-600 rounded-full animate-spin"></div>
+              </div>
+            )}
+
+            {/* Preview table */}
+            {!bulkParsing && bulkRows.length > 0 && (
+              <div className="mt-4 sm:mt-5">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <span className="bulk-summary-pill bg-gray-100 text-gray-700">
+                    {bulkRows.length} row{bulkRows.length === 1 ? "" : "s"} parsed
+                  </span>
+                  <span className="bulk-summary-pill bg-green-100 text-green-700">
+                    ✅ {bulkValidCount} valid
+                  </span>
+                  {bulkErrorCount > 0 && (
+                    <span className="bulk-summary-pill bg-orange-100 text-orange-700">
+                      ⚠️ {bulkErrorCount} with errors
+                    </span>
+                  )}
+                </div>
+
+                <div className="table-wrapper border border-gray-100 rounded-xl">
+                  <table className="bulk-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Status</th>
+                        <th>Name</th>
+                        <th>Category ID</th>
+                        <th>Type ID</th>
+                        <th>Department ID</th>
+                        <th>Location ID</th>
+                        <th>Assigned User ID</th>
+                        <th>Serial #</th>
+                        <th>Purchase Date</th>
+                        <th>Purchase Value</th>
+                        <th>Errors</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkRows.map((row) => (
+                        <tr
+                          key={row.rowNumber}
+                          className={
+                            row.errors.length > 0 ? "row-error" : "row-ok"
+                          }
+                        >
+                          <td>{row.rowNumber}</td>
+                          <td>
+                            <span className="bulk-status-icon">
+                              {row.errors.length > 0 ? "⚠️" : "✅"}
+                            </span>
+                          </td>
+                          <td>{row.name || "—"}</td>
+                          <td>{row.category_id || "—"}</td>
+                          <td>{row.type_id || "—"}</td>
+                          <td>{row.department_id || "—"}</td>
+                          <td>{row.location_id || "—"}</td>
+                          <td>{row.assigned_to_user_id || "—"}</td>
+                          <td>{row.serial_number || "—"}</td>
+                          <td>{row.purchase_date || "—"}</td>
+                          <td>{row.purchase_value || "—"}</td>
+                          <td>
+                            {row.errors.length > 0 ? (
+                              <span className="bulk-error-text">
+                                {row.errors.join("; ")}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4 sm:pt-6 mt-4 sm:mt-5 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={closeBulkModal}
+                className="cursor-pointer flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-xs sm:text-sm order-2 sm:order-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkCreate}
+                disabled={bulkHasBlockingErrors || bulkSubmitting || bulkParsing}
+                className="cursor-pointer flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-700 hover:to-red-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold text-xs sm:text-sm shadow-md order-1 sm:order-2"
+              >
+                {bulkSubmitting ? (
+                  <>
+                    <span className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                    Creating...
+                  </>
+                ) : (
+                  `Create ${bulkRows.length > 0 ? bulkRows.length : ""} Asset${bulkRows.length === 1 ? "" : "s"}`
+                )}
+              </button>
             </div>
           </div>
         </div>

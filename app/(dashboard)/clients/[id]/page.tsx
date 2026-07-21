@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { z } from "zod";
@@ -89,11 +89,13 @@ const clientSchema = z.object({
   address_line_3: z.string().optional().default(""),
 });
 
+// Updated adminSchema with email
 const adminSchema = z.object({
   full_name: z
     .string()
     .min(2, "Name must be at least 2 characters")
     .max(100, "Name must be at most 100 characters"),
+  email: z.string().email("Invalid email address").min(1, "Email is required"),
   phone: z
     .string()
     .min(10, "Phone must be at least 10 characters")
@@ -112,6 +114,19 @@ const createAdminSchema = z.object({
     .min(10, "Phone must be at least 10 characters")
     .max(20, "Phone must be at most 20 characters"),
 });
+
+// Password change schema
+const passwordChangeSchema = z
+  .object({
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirm_password: z
+      .string()
+      .min(8, "Password must be at least 8 characters"),
+  })
+  .refine((data) => data.password === data.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
 
 const subscriptionSchema = z.object({
   licence_count: z.number().min(1, "Licence count must be at least 1"),
@@ -162,6 +177,7 @@ export default function ClientDetailsPage() {
     useState(false);
   const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
   const [showEditAdminModal, setShowEditAdminModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
   const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>(
     {},
@@ -173,6 +189,15 @@ export default function ClientDetailsPage() {
   const [editAdminErrors, setEditAdminErrors] = useState<
     Record<string, string>
   >({});
+
+  // Password change state
+  const [passwordFormData, setPasswordFormData] = useState({
+    password: "",
+    confirm_password: "",
+  });
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>(
+    {},
+  );
 
   const [createAdminForm, setCreateAdminForm] = useState({
     full_name: "",
@@ -213,6 +238,12 @@ export default function ClientDetailsPage() {
     Record<string, string>
   >({});
 
+  // Refs to prevent duplicate API calls
+  const initialFetchDone = useRef(false);
+  const adminFetchedRef = useRef(false);
+  const servicesFetchedRef = useRef(false);
+  const clientFetchedRef = useRef(false);
+
   // Mount check to avoid hydration issues
   useEffect(() => {
     setMounted(true);
@@ -220,15 +251,31 @@ export default function ClientDetailsPage() {
   }, []);
 
   const fetchClient = async () => {
+    // Prevent duplicate fetch
+    if (clientFetchedRef.current) return;
+    clientFetchedRef.current = true;
+
     try {
       setLoading(true);
-      const [clientRes, deptRes, subRes] = await Promise.all([
+
+      // Fetch subscription separately with proper error handling
+      let subRes: any = { data: null };
+      try {
+        subRes = await api.get(`/clients/${clientId}/subscriptions`);
+      } catch (error: any) {
+        // Silent fail for 404 - no subscription (expected)
+        if (error.response?.status === 404) {
+          subRes = { data: null };
+        } else {
+          console.error("Error fetching subscription:", error);
+        }
+      }
+
+      const [clientRes, deptRes] = await Promise.all([
         api.get(`/clients/${clientId}`),
         api.get(`/clients/${clientId}/departments`),
-        api
-          .get(`/clients/${clientId}/subscriptions`)
-          .catch(() => ({ data: null })),
       ]);
+
       setClient(clientRes.data);
       setDepartments(deptRes.data);
 
@@ -251,6 +298,10 @@ export default function ClientDetailsPage() {
   };
 
   const fetchServicesList = async () => {
+    // Prevent duplicate fetch
+    if (servicesFetchedRef.current) return;
+    servicesFetchedRef.current = true;
+
     try {
       const response = await api.get("/services");
       setServicesList(response.data);
@@ -259,17 +310,37 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // REPLACE YOUR EXISTING fetchClientAdmin WITH THIS:
   const fetchClientAdmin = async () => {
+    // Prevent duplicate fetch
+    if (adminFetchedRef.current) return;
+    adminFetchedRef.current = true;
+
     try {
-      const response = await api
-        .get(`/client/${clientId}/admin`)
-        .catch(() => ({ data: null }));
-      setClientAdmin(response.data);
-    } catch (error) {
+      // Use the new endpoint that fetches ALL admins (including deactivated)
+      const response = await api.get(`/client/${clientId}/admins/all`);
+      const admins = response.data;
+
+      if (admins && admins.length > 0) {
+        // Get the first admin (there should only be one)
+        const admin = admins[0];
+        setClientAdmin(admin);
+      } else {
+        setClientAdmin(null);
+      }
+    } catch (error: any) {
       console.error("Error fetching client admin:", error);
       setClientAdmin(null);
     }
   };
+
+  // Reset refs when clientId changes
+  useEffect(() => {
+    adminFetchedRef.current = false;
+    servicesFetchedRef.current = false;
+    clientFetchedRef.current = false;
+    initialFetchDone.current = false;
+  }, [clientId]);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -277,6 +348,11 @@ export default function ClientDetailsPage() {
       router.push("/login");
       return;
     }
+
+    // Prevent duplicate initial fetch
+    if (initialFetchDone.current) return;
+    initialFetchDone.current = true;
+
     if (clientId) {
       fetchClient();
       fetchServicesList();
@@ -306,6 +382,7 @@ export default function ClientDetailsPage() {
       toast.success("Client updated successfully");
       setShowEditModal(false);
       setEditFormErrors({});
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Failed to update client");
@@ -338,6 +415,7 @@ export default function ClientDetailsPage() {
       await api.patch(`/clients/${client.id}/restore`, {});
       toast.success("Client restored successfully");
       setShowRestoreConfirm(false);
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Failed to restore client");
@@ -368,6 +446,7 @@ export default function ClientDetailsPage() {
       toast.success("Subscription created successfully");
       setShowCreateSubscriptionModal(false);
       setSubscriptionErrors({});
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(
@@ -400,6 +479,7 @@ export default function ClientDetailsPage() {
       toast.success("Subscription updated successfully");
       setShowEditSubscriptionModal(false);
       setEditSubscriptionErrors({});
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(
@@ -416,6 +496,7 @@ export default function ClientDetailsPage() {
     try {
       await api.patch(`/clients/subscriptions/${subscription.id}/suspend`);
       toast.success("Subscription suspended");
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(
@@ -432,11 +513,84 @@ export default function ClientDetailsPage() {
     try {
       await api.patch(`/clients/subscriptions/${subscription.id}/reactivate`);
       toast.success("Subscription reactivated");
+      clientFetchedRef.current = false;
       fetchClient();
     } catch (error: any) {
       toast.error(
         error.response?.data?.detail || "Failed to reactivate subscription",
       );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ============= NEW: Admin Management Functions =============
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientAdmin) return;
+
+    const result = passwordChangeSchema.safeParse(passwordFormData);
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      result.error.issues.forEach((err) => {
+        const path = err.path.join(".");
+        errors[path] = err.message;
+      });
+      setPasswordErrors(errors);
+      toast.error(result.error.issues[0].message);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.patch(`/client/admin/${clientAdmin.id}/password`, {
+        password: passwordFormData.password,
+      });
+      toast.success("Password changed successfully");
+      setShowChangePasswordModal(false);
+      setPasswordFormData({ password: "", confirm_password: "" });
+      setPasswordErrors({});
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || "Failed to change password");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeactivateAdmin = async () => {
+    if (!clientAdmin) return;
+
+    if (
+      !confirm(`Are you sure you want to deactivate ${clientAdmin.full_name}?`)
+    ) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.patch(`/client/admin/${clientAdmin.id}/deactivate`);
+      toast.success("Admin deactivated successfully");
+      adminFetchedRef.current = false;
+      fetchClientAdmin();
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || "Failed to deactivate admin");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReactivateAdmin = async () => {
+    if (!clientAdmin) return;
+
+    setSubmitting(true);
+    try {
+      await api.patch(`/client/admin/${clientAdmin.id}/reactivate`);
+      toast.success("Admin reactivated successfully");
+      adminFetchedRef.current = false;
+      fetchClientAdmin();
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || "Failed to reactivate admin");
     } finally {
       setSubmitting(false);
     }
@@ -474,6 +628,7 @@ export default function ClientDetailsPage() {
       setShowCreateAdminModal(false);
       setCreateAdminForm({ full_name: "", email: "", password: "", phone: "" });
       setCreateAdminErrors({});
+      adminFetchedRef.current = false;
       fetchClientAdmin();
     } catch (error: any) {
       toast.error(
@@ -484,6 +639,7 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // Updated: Now includes email
   const handleUpdateClientAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientAdmin) return;
@@ -506,6 +662,7 @@ export default function ClientDetailsPage() {
       toast.success("Client admin updated successfully");
       setShowEditAdminModal(false);
       setEditAdminErrors({});
+      adminFetchedRef.current = false;
       fetchClientAdmin();
     } catch (error: any) {
       toast.error(
@@ -532,10 +689,12 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // Updated: Now includes email in edit form
   const openEditAdminModal = () => {
     if (clientAdmin) {
       setEditAdminFormData({
         full_name: clientAdmin.full_name,
+        email: clientAdmin.email,
         phone: clientAdmin.phone,
       });
       setEditAdminErrors({});
@@ -840,9 +999,20 @@ export default function ClientDetailsPage() {
               <div className="relative">
                 <div className="absolute inset-0 bg-red-500/20 rounded-xl blur-md animate-pulse"></div>
                 <div className="relative w-12 h-12 sm:w-16 sm:h-16 rounded-xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center shadow-md">
-                  <span className="text-white font-bold text-xl sm:text-2xl">
-                    {client.name.charAt(0).toUpperCase()}
-                  </span>
+                  {client.logo_url ? (
+                    <img
+                      src={client.logo_url}
+                      alt={client.name}
+                      className="w-full h-full object-cover rounded-xl"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <span className="text-white font-bold text-xl sm:text-2xl">
+                      {client.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </div>
               </div>
               <div>
@@ -1290,14 +1460,25 @@ export default function ClientDetailsPage() {
                       : "No admin assigned yet"}
                   </p>
                 </div>
-                {!clientAdmin && (
-                  <button
-                    onClick={() => setShowCreateAdminModal(true)}
-                    className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all cursor-pointer"
-                  >
-                    + Create Admin
-                  </button>
-                )}
+                <div className="flex gap-2 flex-wrap">
+                  {!clientAdmin && (
+                    <button
+                      onClick={() => setShowCreateAdminModal(true)}
+                      className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all cursor-pointer"
+                    >
+                      + Create Admin
+                    </button>
+                  )}
+                  {clientAdmin && !clientAdmin.is_active && (
+                    <button
+                      onClick={handleReactivateAdmin}
+                      disabled={submitting}
+                      className="px-3 py-1.5 sm:px-4 sm:py-2 bg-green-600 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Reactivate
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!clientAdmin ? (
@@ -1371,6 +1552,17 @@ export default function ClientDetailsPage() {
                             >
                               {clientAdmin.is_active ? "Active" : "Inactive"}
                             </span>
+                            {clientAdmin.is_active && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowChangePasswordModal(true);
+                                }}
+                                className="px-2 py-1 sm:px-3 sm:py-1.5 bg-blue-100 text-blue-700 rounded-lg text-[10px] sm:text-xs font-semibold hover:bg-blue-200 transition-all cursor-pointer"
+                              >
+                                🔑 Change Password
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1392,6 +1584,18 @@ export default function ClientDetailsPage() {
                               </svg>
                               Edit
                             </button>
+                            {clientAdmin.is_active && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeactivateAdmin();
+                                }}
+                                disabled={submitting}
+                                className="px-2 py-1 sm:px-3 sm:py-1.5 bg-red-100 text-red-700 rounded-lg text-[10px] sm:text-xs font-semibold hover:bg-red-200 transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                Deactivate
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="mt-2 sm:mt-3">
@@ -1408,7 +1612,8 @@ export default function ClientDetailsPage() {
           )}
         </div>
       </div>
-      // Edit Client Modal
+
+      {/* ─── EDIT CLIENT MODAL ─── */}
       {showEditModal && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1684,7 +1889,8 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Edit Client Admin Modal
+
+      {/* ─── EDIT CLIENT ADMIN MODAL (UPDATED WITH EMAIL) ─── */}
       {showEditAdminModal && clientAdmin && (
         <div
           className="modal-overlay"
@@ -1752,22 +1958,36 @@ export default function ClientDetailsPage() {
                   )}
                 </div>
 
+                {/* UPDATED: Email is now editable */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                    Email
+                    Email <span className="text-red-500">*</span>
                   </label>
                   <div className="input-icon-wrapper">
                     <span className="icon">✉️</span>
                     <input
                       type="email"
-                      value={clientAdmin.email}
-                      disabled
-                      className="w-full px-4 py-2.5 pl-10 border border-gray-200 rounded-xl bg-gray-100 text-gray-500 cursor-not-allowed"
+                      value={editAdminFormData.email || ""}
+                      onChange={(e) => {
+                        setEditAdminFormData({
+                          ...editAdminFormData,
+                          email: e.target.value,
+                        });
+                        if (editAdminErrors.email)
+                          setEditAdminErrors({
+                            ...editAdminErrors,
+                            email: "",
+                          });
+                      }}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${editAdminErrors.email ? "border-red-500 focus:ring-red-400/50" : "border-gray-200 focus:ring-amber-400/50"}`}
+                      placeholder="admin@company.com"
                     />
                   </div>
-                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
-                    Email cannot be changed
-                  </p>
+                  {editAdminErrors.email && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editAdminErrors.email}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -1826,7 +2046,139 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Create Client Admin Modal
+
+      {/* ─── CHANGE PASSWORD MODAL (NEW) ─── */}
+      {showChangePasswordModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowChangePasswordModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4 sm:mb-6">
+              <div>
+                <h2 className="text-lg sm:text-2xl font-bold text-gray-800">
+                  Change Password
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
+                  Update password for {clientAdmin?.full_name}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowChangePasswordModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-all duration-200 hover:rotate-90 transform w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  className="sm:w-[16px] sm:h-[16px]"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword}>
+              <div className="modal-grid-2">
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    New Password <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">🔒</span>
+                    <input
+                      type="password"
+                      value={passwordFormData.password}
+                      onChange={(e) => {
+                        setPasswordFormData({
+                          ...passwordFormData,
+                          password: e.target.value,
+                        });
+                        if (passwordErrors.password)
+                          setPasswordErrors({
+                            ...passwordErrors,
+                            password: "",
+                          });
+                      }}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${passwordErrors.password ? "border-red-500 focus:ring-red-400/50" : "border-gray-200 focus:ring-red-400/50"}`}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  {passwordErrors.password && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {passwordErrors.password}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                    Min 8 characters with uppercase, lowercase, and number
+                  </p>
+                </div>
+
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Confirm Password <span className="text-red-500">*</span>
+                  </label>
+                  <div className="input-icon-wrapper">
+                    <span className="icon">✓</span>
+                    <input
+                      type="password"
+                      value={passwordFormData.confirm_password}
+                      onChange={(e) => {
+                        setPasswordFormData({
+                          ...passwordFormData,
+                          confirm_password: e.target.value,
+                        });
+                        if (passwordErrors.confirm_password)
+                          setPasswordErrors({
+                            ...passwordErrors,
+                            confirm_password: "",
+                          });
+                      }}
+                      className={`w-full px-4 py-2.5 pl-10 border rounded-xl focus:outline-none focus:ring-2 transition-all input-fancy text-gray-800 placeholder-gray-400 text-sm font-normal ${passwordErrors.confirm_password ? "border-red-500 focus:ring-red-400/50" : "border-gray-200 focus:ring-red-400/50"}`}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  {passwordErrors.confirm_password && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {passwordErrors.confirm_password}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-6 mt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowChangePasswordModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold text-sm cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 font-semibold text-sm shadow-md cursor-pointer"
+                >
+                  {submitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Password"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── CREATE CLIENT ADMIN MODAL ─── */}
       {showCreateAdminModal && (
         <div
           className="modal-overlay"
@@ -2022,7 +2374,8 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Create Subscription Modal
+
+      {/* ─── CREATE SUBSCRIPTION MODAL ─── */}
       {showCreateSubscriptionModal && (
         <div
           className="modal-overlay"
@@ -2321,7 +2674,8 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Edit Subscription Modal
+
+      {/* ─── EDIT SUBSCRIPTION MODAL ─── */}
       {showEditSubscriptionModal && subscription && (
         <div
           className="modal-overlay"
@@ -2589,7 +2943,8 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Delete Confirmation Modal
+
+      {/* ─── DELETE CONFIRMATION MODAL ─── */}
       {showDeleteConfirm && (
         <div
           className="modal-overlay"
@@ -2651,7 +3006,8 @@ export default function ClientDetailsPage() {
           </div>
         </div>
       )}
-      // Restore Confirmation Modal
+
+      {/* ─── RESTORE CONFIRMATION MODAL ─── */}
       {showRestoreConfirm && (
         <div
           className="modal-overlay"

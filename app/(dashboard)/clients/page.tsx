@@ -36,7 +36,6 @@ interface CreateClientData {
 type ViewMode = "table" | "grid";
 
 // Zod schema for client validation
-
 const clientSchema = z.object({
   name: z
     .string()
@@ -132,8 +131,14 @@ export default function ClientsPage() {
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
+  
+  // State for logo file
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
   const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [formData, setFormData] = useState<CreateClientData>({
     name: "",
     industry: "",
@@ -184,6 +189,41 @@ export default function ClientsPage() {
     fetchClients();
   }, [router, fetchClients, showDeactivated]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (!validTypes.includes(file.type)) {
+        toast.error('Please upload a valid image file (JPEG, PNG, GIF, WEBP, SVG)');
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('File size must be less than 5MB');
+        return;
+      }
+      
+      setLogoFile(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoFile(null);
+    setLogoPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -201,9 +241,28 @@ export default function ClientsPage() {
 
     setSubmitting(true);
     try {
-      await api.post("/clients/create", result.data);
+      // Create FormData for multipart/form-data
+      const formDataToSend = new FormData();
+      
+      // Add client data as JSON string
+      formDataToSend.append('client_data', JSON.stringify(result.data));
+      
+      // Add logo file if selected
+      if (logoFile) {
+        formDataToSend.append('image_file', logoFile);
+      }
+
+      // Send as multipart/form-data
+      await api.post("/clients/create", formDataToSend, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
       toast.success("Client created successfully");
       setShowModal(false);
+      
+      // Reset form
       setFormData({
         name: "",
         industry: "",
@@ -213,6 +272,11 @@ export default function ClientsPage() {
         address_line_2: "",
         address_line_3: "",
       });
+      setLogoFile(null);
+      setLogoPreview(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setValidationErrors({});
       fetchClients();
     } catch (error: any) {
@@ -580,6 +644,59 @@ export default function ClientsPage() {
             font-size: 22px;
           }
         }
+
+        /* Logo upload styles */
+        .logo-upload-area {
+          border: 2px dashed #d1d5db;
+          border-radius: 12px;
+          padding: 16px;
+          text-align: center;
+          transition: all 0.3s ease;
+          cursor: pointer;
+          min-height: 120px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .logo-upload-area:hover {
+          border-color: #dc2626;
+          background-color: #fef2f2;
+        }
+        .logo-upload-area.has-logo {
+          border-color: #22c55e;
+          background-color: #f0fdf4;
+        }
+        .logo-preview-container {
+          position: relative;
+          display: inline-block;
+        }
+        .logo-preview {
+          max-height: 100px;
+          max-width: 200px;
+          object-fit: contain;
+          border-radius: 8px;
+        }
+        .logo-remove-btn {
+          position: absolute;
+          top: -8px;
+          right: -8px;
+          background: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 50%;
+          width: 24px;
+          height: 24px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+          font-size: 14px;
+        }
+        .logo-remove-btn:hover {
+          background: #dc2626;
+          transform: scale(1.1);
+        }
       `}</style>
 
       <div className="min-h-screen bg-gradient-to-br from-white via-red-50/15 to-white">
@@ -895,11 +1012,29 @@ export default function ClientsPage() {
                         <div className="p-4 sm:p-5">
                           <div className="flex items-start justify-between mb-4">
                             <div className="relative">
-                              <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
-                                <span className="text-red-600 font-bold text-lg sm:text-xl group-hover:scale-110 transition-transform duration-300">
-                                  {client.name.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
+                              {client.logo_url ? (
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50 overflow-hidden">
+                                  <img 
+                                    src={client.logo_url} 
+                                    alt={client.name} 
+                                    className="w-full h-full object-cover rounded-xl"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      e.currentTarget.parentElement!.innerHTML = `
+                                        <span class="text-red-600 font-bold text-lg sm:text-xl group-hover:scale-110 transition-transform duration-300">
+                                          ${client.name.charAt(0).toUpperCase()}
+                                        </span>
+                                      `;
+                                    }}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-red-50 to-white flex items-center justify-center shadow-sm border border-red-100/50">
+                                  <span className="text-red-600 font-bold text-lg sm:text-xl group-hover:scale-110 transition-transform duration-300">
+                                    {client.name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                             <span
                               className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold backdrop-blur-sm ${client.is_active ? "bg-green-100 text-green-700 border border-green-200" : "bg-gray-100 text-gray-500 border border-gray-200"}`}
@@ -976,6 +1111,7 @@ export default function ClientsPage() {
                     <table className="client-table">
                       <thead>
                         <tr>
+                          <th>Logo</th>
                           <th>Name</th>
                           <th>Industry</th>
                           <th>Email</th>
@@ -988,7 +1124,7 @@ export default function ClientsPage() {
                         {filteredClients.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={6}
+                              colSpan={7}
                               className="text-center py-8 sm:py-12 text-gray-500 text-sm font-normal"
                             >
                               No clients found
@@ -1003,6 +1139,26 @@ export default function ClientsPage() {
                               onMouseLeave={() => setHoveredRow(null)}
                               className="cursor-pointer hover:bg-red-50 transition-colors"
                             >
+                              <td className="w-12">
+                                {client.logo_url ? (
+                                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center">
+                                    <img 
+                                      src={client.logo_url} 
+                                      alt={client.name} 
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center">
+                                    <span className="text-red-600 font-bold text-sm">
+                                      {client.name.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+                                )}
+                              </td>
                               <td className="font-semibold text-gray-900">
                                 {client.name}
                               </td>
@@ -1305,6 +1461,68 @@ export default function ClientsPage() {
                       {validationErrors.address_line_3}
                     </p>
                   )}
+                </div>
+
+                {/* Logo Upload Field */}
+                <div className="full-width">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                    Company Logo
+                  </label>
+                  <div 
+                    className={`logo-upload-area ${logoPreview ? 'has-logo' : ''}`}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="logo-upload"
+                    />
+                    {logoPreview ? (
+                      <div className="logo-preview-container">
+                        <img
+                          src={logoPreview}
+                          alt="Logo preview"
+                          className="logo-preview"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveLogo();
+                          }}
+                          className="logo-remove-btn"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <svg
+                          width="48"
+                          height="48"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#9ca3af"
+                          strokeWidth="1.5"
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                        <div>
+                          <p className="text-sm text-gray-600 font-medium">
+                            Click to upload logo
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            PNG, JPG, GIF, WEBP, SVG (Max 5MB)
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
