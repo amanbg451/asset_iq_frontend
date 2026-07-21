@@ -139,6 +139,7 @@ const subscriptionSchema = z.object({
   services: z.array(z.string()).default([]),
 });
 
+// ⭐ UPDATED: Added services field
 const editSubscriptionSchema = z.object({
   licence_count: z.number().min(1, "Licence count must be at least 1"),
   max_assets: z.number().min(1, "Max assets must be at least 1"),
@@ -147,6 +148,7 @@ const editSubscriptionSchema = z.object({
   starts_at: z.string().min(1, "Start date is required"),
   ends_at: z.string().min(1, "End date is required"),
   auto_renew: z.boolean().default(false),
+  services: z.array(z.string()).default([]), // ⭐ ADDED
 });
 
 export default function ClientDetailsPage() {
@@ -225,6 +227,7 @@ export default function ClientDetailsPage() {
     Record<string, string>
   >({});
 
+  // ⭐ UPDATED: Added services field
   const [editSubscriptionFormData, setEditSubscriptionFormData] = useState({
     licence_count: 0,
     max_assets: 0,
@@ -233,6 +236,7 @@ export default function ClientDetailsPage() {
     starts_at: "",
     ends_at: "",
     auto_renew: false,
+    services: [] as string[], // ⭐ ADDED
   });
   const [editSubscriptionErrors, setEditSubscriptionErrors] = useState<
     Record<string, string>
@@ -310,19 +314,16 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // REPLACE YOUR EXISTING fetchClientAdmin WITH THIS:
   const fetchClientAdmin = async () => {
     // Prevent duplicate fetch
     if (adminFetchedRef.current) return;
     adminFetchedRef.current = true;
 
     try {
-      // Use the new endpoint that fetches ALL admins (including deactivated)
       const response = await api.get(`/client/${clientId}/admins/all`);
       const admins = response.data;
 
       if (admins && admins.length > 0) {
-        // Get the first admin (there should only be one)
         const admin = admins[0];
         setClientAdmin(admin);
       } else {
@@ -457,6 +458,7 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // ⭐ UPDATED: Now includes services
   const handleEditSubscription = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subscription) return;
@@ -475,6 +477,7 @@ export default function ClientDetailsPage() {
 
     setSubmitting(true);
     try {
+      // ⭐ Services automatically included in result.data
       await api.patch(`/clients/subscriptions/${subscription.id}`, result.data);
       toast.success("Subscription updated successfully");
       setShowEditSubscriptionModal(false);
@@ -524,7 +527,7 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // ============= NEW: Admin Management Functions =============
+  // ============= Admin Management Functions =============
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -639,7 +642,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // Updated: Now includes email
   const handleUpdateClientAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientAdmin) return;
@@ -689,7 +691,6 @@ export default function ClientDetailsPage() {
     }
   };
 
-  // Updated: Now includes email in edit form
   const openEditAdminModal = () => {
     if (clientAdmin) {
       setEditAdminFormData({
@@ -702,8 +703,11 @@ export default function ClientDetailsPage() {
     }
   };
 
+  // ⭐ UPDATED: Now loads current services
   const openEditSubscriptionModal = () => {
     if (subscription) {
+      const currentServiceIds = subscribedServices.map(s => s.id);
+      
       setEditSubscriptionFormData({
         licence_count: subscription.licence_count,
         max_assets: subscription.max_assets,
@@ -712,6 +716,7 @@ export default function ClientDetailsPage() {
         starts_at: subscription.starts_at.split("T")[0],
         ends_at: subscription.ends_at.split("T")[0],
         auto_renew: subscription.auto_renew,
+        services: currentServiceIds, // ⭐ ADDED
       });
       setEditSubscriptionErrors({});
       setShowEditSubscriptionModal(true);
@@ -720,6 +725,16 @@ export default function ClientDetailsPage() {
 
   const handleServiceToggle = (serviceId: string) => {
     setSubscriptionFormData((prev) => ({
+      ...prev,
+      services: prev.services.includes(serviceId)
+        ? prev.services.filter((id) => id !== serviceId)
+        : [...prev.services, serviceId],
+    }));
+  };
+
+  // ⭐ NEW: Handle service toggle in edit modal
+  const handleEditServiceToggle = (serviceId: string) => {
+    setEditSubscriptionFormData((prev) => ({
       ...prev,
       services: prev.services.includes(serviceId)
         ? prev.services.filter((id) => id !== serviceId)
@@ -1890,7 +1905,7 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* ─── EDIT CLIENT ADMIN MODAL (UPDATED WITH EMAIL) ─── */}
+      {/* ─── EDIT CLIENT ADMIN MODAL ─── */}
       {showEditAdminModal && clientAdmin && (
         <div
           className="modal-overlay"
@@ -1958,7 +1973,6 @@ export default function ClientDetailsPage() {
                   )}
                 </div>
 
-                {/* UPDATED: Email is now editable */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Email <span className="text-red-500">*</span>
@@ -2047,7 +2061,7 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* ─── CHANGE PASSWORD MODAL (NEW) ─── */}
+      {/* ─── CHANGE PASSWORD MODAL ─── */}
       {showChangePasswordModal && (
         <div
           className="modal-overlay"
@@ -2675,7 +2689,7 @@ export default function ClientDetailsPage() {
         </div>
       )}
 
-      {/* ─── EDIT SUBSCRIPTION MODAL ─── */}
+      {/* ─── EDIT SUBSCRIPTION MODAL (UPDATED WITH SERVICES) ─── */}
       {showEditSubscriptionModal && subscription && (
         <div
           className="modal-overlay"
@@ -2688,7 +2702,7 @@ export default function ClientDetailsPage() {
                   Edit Subscription
                 </h2>
                 <p className="text-xs sm:text-sm text-gray-400 mt-0.5 font-normal">
-                  Update subscription details
+                  Update subscription details and services
                 </p>
               </div>
               <button
@@ -2913,6 +2927,44 @@ export default function ClientDetailsPage() {
                       Auto Renew
                     </span>
                   </label>
+                </div>
+
+                {/* ⭐ SERVICES SECTION - ADDED FOR EDIT SUBSCRIPTION */}
+                <div className="full-width mt-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Select Services
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-3 border border-gray-200 rounded-xl">
+                    {servicesList
+                      .filter((s) => s.is_active !== false)
+                      .map((service) => (
+                        <label
+                          key={service.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editSubscriptionFormData.services?.includes(service.id) || false}
+                            onChange={() => handleEditServiceToggle(service.id)}
+                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {service.name}
+                          </span>
+                          <span className="text-xs text-gray-400 ml-auto">
+                            {service.code}
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                  {editSubscriptionErrors.services && (
+                    <p className="text-red-500 text-xs mt-1.5 font-medium">
+                      {editSubscriptionErrors.services}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5 ml-1 font-normal">
+                    Select services to include in this subscription
+                  </p>
                 </div>
               </div>
 
