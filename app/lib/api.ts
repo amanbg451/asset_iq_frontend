@@ -2,7 +2,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "https://assetai.leadtech.in/api",
+  baseURL:"https://assetai.leadtech.in/api",
   timeout: 30000,
   headers: {
     "Content-Type": "application/json",

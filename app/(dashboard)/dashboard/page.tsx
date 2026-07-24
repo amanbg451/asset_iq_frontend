@@ -729,6 +729,10 @@ export default function DashboardPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [clientsLoading, setClientsLoading] = useState(false);
+  
+  // ✅ FIXED: Add mapKey to force remount when needed
+  const [dashboardMapKey, setDashboardMapKey] = useState(0);
+  
   const [clientStats, setClientStats] = useState<DashboardStats>({
     departments: 0,
     managers: 0,
@@ -837,12 +841,15 @@ export default function DashboardPage() {
       }));
 
       setAssetLocations(mappedAssets);
+      // ✅ Force map remount when new data loads
+      setDashboardMapKey(prev => prev + 1);
     } catch (error: any) {
       console.error("Error fetching asset locations:", error);
     } finally {
       setMapLoading(false);
     }
   }, [selectedClientId]);
+
   const fetchDashboardData = useCallback(async () => {
     try {
       setDashboardLoading(true);
@@ -1807,7 +1814,11 @@ export default function DashboardPage() {
             {userRole === "ADMIN" && (
               <select
                 value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedClientId(e.target.value);
+                  // ✅ Force map remount when client changes
+                  setDashboardMapKey(prev => prev + 1);
+                }}
                 style={{
                   padding: "8px 12px",
                   borderRadius: 10,
@@ -2254,7 +2265,9 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ErrorBoundary>
+                  {/* ✅ FIXED: Added key prop to force remount when client changes */}
                   <AssetMap
+                    key={dashboardMapKey}
                     assets={filteredAssets}
                     onAssetClick={handleAssetClick}
                     mapMode="light"
